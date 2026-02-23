@@ -13,6 +13,7 @@ DEFAULT_VAD_FILTER = True
 DEFAULT_COMPUTE_TYPE = "float16"
 DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD = True
 DEFAULT_INCLUDE_TIMESTAMPS = False
+DEFAULT_UI_LANGUAGE = "ru"
 
 ALLOWED_MODELS = (
     "tiny",
@@ -24,6 +25,7 @@ ALLOWED_MODELS = (
     "distil-large-v3",
 )
 ALLOWED_COMPUTE_TYPES = ("float16", "int8_float16", "int8")
+ALLOWED_UI_LANGUAGES = ("ru", "en")
 
 
 def _default_settings() -> dict:
@@ -38,6 +40,7 @@ def _default_settings() -> dict:
         "whisper_vad_filter": DEFAULT_VAD_FILTER,
         "whisper_compute_type": DEFAULT_COMPUTE_TYPE,
         "include_timestamps": DEFAULT_INCLUDE_TIMESTAMPS,
+        "ui_language": DEFAULT_UI_LANGUAGE,
     }
 
 
@@ -79,6 +82,10 @@ def _sanitize_settings(raw: dict | None) -> dict:
     if compute_type not in ALLOWED_COMPUTE_TYPES:
         compute_type = DEFAULT_COMPUTE_TYPE
 
+    ui_language = str(payload.get("ui_language", DEFAULT_UI_LANGUAGE)).strip().lower()
+    if ui_language not in ALLOWED_UI_LANGUAGES:
+        ui_language = DEFAULT_UI_LANGUAGE
+
     return {
         "last_microphone": " ".join(str(payload.get("last_microphone", "")).split()),
         "speaker_self": _normalize_label(payload.get("speaker_self", ""), DEFAULT_SELF_LABEL),
@@ -104,6 +111,7 @@ def _sanitize_settings(raw: dict | None) -> dict:
             payload.get("include_timestamps", DEFAULT_INCLUDE_TIMESTAMPS),
             DEFAULT_INCLUDE_TIMESTAMPS,
         ),
+        "ui_language": ui_language,
     }
 
 
