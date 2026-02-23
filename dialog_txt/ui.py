@@ -47,6 +47,9 @@ import soundcard as sc
 
 
 class App(tk.Tk):
+    SYSTEM_MICROPHONE_SETTING = "__system_default__"
+    SYSTEM_MICROPHONE_LABEL = "Системный"
+
     def __init__(self):
         super().__init__()
         self.title("Dialog TXT Recorder")
@@ -72,6 +75,7 @@ class App(tk.Tk):
         self.app_settings = load_app_settings()
 
         self.microphones = []
+        self.system_microphone_option = self._system_microphone_option_label()
         self.auto_transcribe_var = tk.BooleanVar(
             value=self.app_settings["auto_transcribe_after_record"]
         )
@@ -284,16 +288,17 @@ class App(tk.Tk):
 
         previous_selection = self._selected_microphone_name()
         self.microphones = list(mics)
-        values = [mic.name for mic in self.microphones]
+        self.system_microphone_option = self._system_microphone_option_label()
+        values = [self.system_microphone_option] + [mic.name for mic in self.microphones]
         self.mic_combo["values"] = values
         if values:
-            preferred = previous_selection or self.app_settings.get("last_microphone", "")
+            preferred = self._preferred_microphone_selection(previous_selection)
             selected_index = 0
             if preferred in values:
                 selected_index = values.index(preferred)
             self.mic_combo.current(selected_index)
-            self._set_status(f"Микрофонов найдено: {len(values)}")
-            self._log_event(f"Список микрофонов обновлён: {len(values)} устройств")
+            self._set_status(f"Микрофонов найдено: {len(self.microphones)}")
+            self._log_event(f"Список микрофонов обновлён: {len(self.microphones)} устройств")
             self._save_app_settings()
         else:
             self._set_status("Микрофоны не найдены")
@@ -355,21 +360,66 @@ class App(tk.Tk):
             return selected_name
 
         idx = self.mic_combo.current() if hasattr(self, "mic_combo") else -1
-        if idx >= 0 and idx < len(self.microphones):
-            return self.microphones[idx].name
+        if idx == 0:
+            return self.system_microphone_option
+        mic_idx = idx - 1
+        if mic_idx >= 0 and mic_idx < len(self.microphones):
+            return self.microphones[mic_idx].name
         return ""
 
     def _resolve_selected_microphone(self):
         selected_name = self._selected_microphone_name()
+        if self._is_system_microphone_selection(selected_name):
+            return self._default_microphone()
+
         if selected_name:
             for mic in self.microphones:
                 if mic.name == selected_name:
                     return mic
 
         idx = self.mic_combo.current()
-        if idx >= 0 and idx < len(self.microphones):
-            return self.microphones[idx]
+        if idx == 0:
+            return self._default_microphone()
+
+        mic_idx = idx - 1
+        if mic_idx >= 0 and mic_idx < len(self.microphones):
+            return self.microphones[mic_idx]
         return None
+
+    def _default_microphone(self):
+        try:
+            default_mic = sc.default_microphone()
+        except Exception:
+            return None
+        return default_mic
+
+    def _default_microphone_name(self) -> str:
+        default_mic = self._default_microphone()
+        if default_mic is None:
+            return ""
+        return str(getattr(default_mic, "name", "")).strip()
+
+    def _system_microphone_option_label(self) -> str:
+        default_name = self._default_microphone_name()
+        if not default_name:
+            return f"{self.SYSTEM_MICROPHONE_LABEL} (не определён)"
+        return f"{self.SYSTEM_MICROPHONE_LABEL} ({default_name})"
+
+    def _is_system_microphone_selection(self, selected_name: str) -> bool:
+        return selected_name == self.SYSTEM_MICROPHONE_SETTING or selected_name.startswith(
+            f"{self.SYSTEM_MICROPHONE_LABEL} ("
+        )
+
+    def _preferred_microphone_selection(self, previous_selection: str) -> str:
+        if self._is_system_microphone_selection(previous_selection):
+            return self.system_microphone_option
+        if previous_selection:
+            return previous_selection
+
+        preferred = self.app_settings.get("last_microphone", "")
+        if self._is_system_microphone_selection(preferred):
+            return self.system_microphone_option
+        return preferred
 
     def _schedule_settings_save(self, *_args) -> None:
         if self.settings_save_after_id:
@@ -424,6 +474,8 @@ class App(tk.Tk):
         if self.settings_save_after_id:
             self.settings_save_after_id = None
         selected_mic = self._selected_microphone_name()
+        if self._is_system_microphone_selection(selected_mic):
+            selected_mic = self.SYSTEM_MICROPHONE_SETTING
 
         self_label, other_label = self._current_speaker_labels()
         options = self._current_transcription_options()
@@ -484,9 +536,6 @@ class App(tk.Tk):
             return
         if self.transcription_thread and self.transcription_thread.is_alive():
             messagebox.showwarning("Занято", "Сначала дождитесь завершения текущей транскрибации.")
-            return
-        if not self.microphones:
-            messagebox.showerror("Ошибка", "Нет доступных микрофонов.")
             return
 
         mic = self._resolve_selected_microphone()
