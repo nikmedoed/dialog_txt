@@ -1,8 +1,10 @@
-# dialog-txt
+# Dialog to TXT
+
+Project codename/package: `dialog-txt`
 
 ## English
 
-Python desktop app (Tkinter) for dual-track dialogue recording and Whisper transcription with speaker labels.
+`Dialog to TXT` is a Python desktop app (Tkinter) for dual-track dialogue recording and Whisper transcription with speaker labels.
 
 ### What it does
 
@@ -101,7 +103,7 @@ recordings/
 
 ## Русский
 
-Desktop-приложение на Python (Tkinter) для записи диалога в 2 дорожки и получения текстовой расшифровки через Whisper с разметкой спикеров.
+`Dialog to TXT` — desktop-приложение на Python (Tkinter) для записи диалога в 2 дорожки и получения текстовой расшифровки через Whisper с разметкой спикеров.
 
 ### Что делает
 

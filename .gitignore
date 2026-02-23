@@ -181,11 +181,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-frontend/index.jinja2
-/uploads
 uv.lock
-state.json
-/avatars/
 /media
 /recordings
 app_settings.json

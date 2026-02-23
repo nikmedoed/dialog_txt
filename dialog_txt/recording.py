@@ -4,6 +4,7 @@ import math
 import queue
 import threading
 import time
+import warnings
 from pathlib import Path
 from typing import Callable
 
@@ -102,3 +103,67 @@ class DualTrackRecorder:
         rms = math.sqrt(float(squared.mean()))
         boosted = min(1.0, rms * 8.0)
         return boosted
+
+
+class DualTrackLevelMonitor:
+    def __init__(
+        self,
+        mic,
+        desktop,
+        level_callback: Callable[[str, float], None] | None = None,
+        error_callback: Callable[[str, str], None] | None = None,
+    ):
+        self.mic = mic
+        self.desktop = desktop
+        self.level_callback = level_callback
+        self.error_callback = error_callback
+        self.stop_event = threading.Event()
+        self.threads: list[threading.Thread] = []
+
+    def start(self) -> None:
+        self.stop_event.clear()
+        self.threads = [
+            threading.Thread(
+                target=self._monitor_loop,
+                args=(self.mic, "microphone"),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self._monitor_loop,
+                args=(self.desktop, "desktop"),
+                daemon=True,
+            ),
+        ]
+        for thread in self.threads:
+            thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        for thread in self.threads:
+            thread.join()
+
+    def _monitor_loop(self, source, source_name: str) -> None:
+        try:
+            # Metering is best-effort: ignore occasional MediaFoundation discontinuity warnings.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="data discontinuity in recording",
+                    category=RuntimeWarning,
+                    module=r"soundcard\.mediafoundation",
+                )
+                with source.recorder(samplerate=SAMPLE_RATE, blocksize=BLOCK_FRAMES) as rec:
+                    last_level_emit_at = 0.0
+                    while not self.stop_event.is_set():
+                        chunk = rec.record(numframes=BLOCK_FRAMES)
+                        mono = to_mono(chunk)
+                        if self.level_callback:
+                            now = time.monotonic()
+                            if now - last_level_emit_at >= 0.12:
+                                level = DualTrackRecorder._estimate_level(mono)
+                                self.level_callback(source_name, level)
+                                last_level_emit_at = now
+        except Exception as exc:  # pragma: no cover - device-specific failures
+            self.stop_event.set()
+            if self.error_callback:
+                self.error_callback(source_name, str(exc))

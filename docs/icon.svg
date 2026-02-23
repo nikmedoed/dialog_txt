@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Background gradient -->
+    <radialGradient id="bgGlow" cx="28%" cy="18%" r="85%">
+      <stop offset="0%" stop-color="#2f4a6a" stop-opacity="1"></stop>
+      <stop offset="55%" stop-color="#1d3553" stop-opacity="1"></stop>
+      <stop offset="100%" stop-color="#132842" stop-opacity="1"></stop>
+    </radialGradient>
+
+    <linearGradient id="bgVignette" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"></stop>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.35"></stop>
+    </linearGradient>
+
+    <!-- Paper -->
+    <linearGradient id="paperGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"></stop>
+      <stop offset="100%" stop-color="#f1f6ff"></stop>
+    </linearGradient>
+
+    <!-- Shadows -->
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10" result="b"></feGaussianBlur>
+      <feOffset in="b" dx="0" dy="12" result="o"></feOffset>
+      <feColorMatrix in="o" type="matrix" values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0.35 0" result="s"></feColorMatrix>
+      <feMerge>
+        <feMergeNode in="s"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+
+    <filter id="tinyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="b"></feGaussianBlur>
+      <feOffset in="b" dx="0" dy="6" result="o"></feOffset>
+      <feColorMatrix in="o" type="matrix" values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0.35 0" result="s"></feColorMatrix>
+      <feMerge>
+        <feMergeNode in="s"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+
+    <!-- Clip for transcript content -->
+    <clipPath id="paperClip">
+      <rect x="170" y="395" width="684" height="455" rx="52" ry="52"></rect>
+    </clipPath>
+  </defs>
+
+  <!-- Rounded background card -->
+  <g>
+    <rect x="36" y="36" width="952" height="952" rx="210" ry="210" fill="url(#bgGlow)"></rect>
+    <rect x="36" y="36" width="952" height="952" rx="210" ry="210" fill="url(#bgVignette)"></rect>
+    <!-- inner stroke -->
+    <rect x="52" y="52" width="920" height="920" rx="196" ry="196" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="6"></rect>
+    <!-- outer subtle stroke -->
+    <rect x="44" y="44" width="936" height="936" rx="203" ry="203" fill="none" stroke="#000000" stroke-opacity="0.20" stroke-width="8"></rect>
+  </g>
+
+  <!-- Top row: mic circle, centered waveform, speaker circle -->
+  <g>
+    <!-- Circles (true circles) -->
+    <circle cx="160" cy="235" r="66" fill="#0f1c2e" filter="url(#tinyShadow)"></circle>
+    <circle cx="864" cy="235" r="66" fill="#0f1c2e" filter="url(#tinyShadow)"></circle>
+
+    <!-- Mic glyph (centered) -->
+    <g transform="translate(160 235)" filter="url(#tinyShadow)">
+      <!-- body -->
+      <rect x="-26" y="-44" width="52" height="90" rx="26" fill="#ffffff" opacity="0.95"></rect>
+      <rect x="-18" y="-36" width="36" height="58" rx="18" fill="#f24e3c"></rect>
+      <!-- stem -->
+      <rect x="-9" y="44" width="18" height="18" rx="9" fill="#ffffff" opacity="0.95"></rect>
+      <!-- base -->
+      <rect x="-34" y="60" width="68" height="16" rx="8" fill="#ffffff" opacity="0.95"></rect>
+    </g>
+
+    <!-- Speaker glyph (centered) -->
+    <g transform="translate(864 235)" filter="url(#tinyShadow)">
+      <!-- speaker body -->
+      <path d="M -38 -18 L -18 -18 L 6 -40 L 6 40 L -18 18 L -38 18 Z" fill="#ffffff" opacity="0.95"></path>
+      <path d="M -30 -10 L -18 -10 L -2 -26 L -2 26 L -18 10 L -30 10 Z" fill="#3498db"></path>
+      <!-- waves -->
+      <path d="M 20 -26 A 30 30 0 0 1 20 26" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="8" stroke-linecap="round"></path>
+      <path d="M 34 -40 A 46 46 0 0 1 34 40" fill="none" stroke="#ffffff" stroke-opacity="0.50" stroke-width="8" stroke-linecap="round"></path>
+    </g>
+
+    <!-- Waveform: perfectly centered between circle edges -->
+    <!-- Wave area from x=160+66+40=266 to x=864-66-40=758. Center is 512. -->
+    <g filter="url(#tinyShadow)">
+      <!-- bars (precomputed positions, symmetrical around center) -->
+      <!-- style: white bars -->
+      <g fill="#f4f7ff" fill-opacity="0.92">
+        <!-- left to right bars: x, height pattern -->
+        <!-- baseline centered at y=235 -->
+        <!-- Each bar: width 8, gap 8 (step 16) -->
+        <!-- Start x=282, end x=742 -->
+        <!-- Heights chosen to look like audio (not necessarily symmetric, but centered as a block) -->
+        <rect x="282" y="208" width="8" height="54" rx="4"></rect>
+        <rect x="298" y="198" width="8" height="74" rx="4"></rect>
+        <rect x="314" y="190" width="8" height="90" rx="4"></rect>
+        <rect x="330" y="186" width="8" height="98" rx="4"></rect>
+        <rect x="346" y="190" width="8" height="90" rx="4"></rect>
+        <rect x="362" y="200" width="8" height="70" rx="4"></rect>
+        <rect x="378" y="210" width="8" height="50" rx="4"></rect>
+
+        <rect x="394" y="216" width="8" height="38" rx="4"></rect>
+        <rect x="410" y="214" width="8" height="42" rx="4"></rect>
+        <rect x="426" y="212" width="8" height="46" rx="4"></rect>
+        <rect x="442" y="210" width="8" height="50" rx="4"></rect>
+        <rect x="458" y="208" width="8" height="54" rx="4"></rect>
+        <rect x="474" y="206" width="8" height="58" rx="4"></rect>
+        <rect x="490" y="204" width="8" height="62" rx="4"></rect>
+
+        <rect x="506" y="202" width="8" height="66" rx="4"></rect>
+        <rect x="522" y="202" width="8" height="66" rx="4"></rect>
+        <rect x="538" y="204" width="8" height="62" rx="4"></rect>
+        <rect x="554" y="206" width="8" height="58" rx="4"></rect>
+        <rect x="570" y="208" width="8" height="54" rx="4"></rect>
+        <rect x="586" y="210" width="8" height="50" rx="4"></rect>
+        <rect x="602" y="212" width="8" height="46" rx="4"></rect>
+
+        <rect x="618" y="214" width="8" height="42" rx="4"></rect>
+        <rect x="634" y="216" width="8" height="38" rx="4"></rect>
+        <rect x="650" y="214" width="8" height="42" rx="4"></rect>
+        <rect x="666" y="210" width="8" height="50" rx="4"></rect>
+        <rect x="682" y="204" width="8" height="62" rx="4"></rect>
+        <rect x="698" y="196" width="8" height="78" rx="4"></rect>
+        <rect x="714" y="190" width="8" height="90" rx="4"></rect>
+        <rect x="730" y="198" width="8" height="74" rx="4"></rect>
+        <rect x="746" y="210" width="8" height="50" rx="4"></rect>
+      </g>
+    </g>
+  </g>
+
+  <!-- Transcript paper -->
+  <g filter="url(#softShadow)">
+    <rect x="152" y="360" width="720" height="540" rx="60" ry="60" fill="url(#paperGrad)"></rect>
+    <rect x="166" y="374" width="692" height="512" rx="52" ry="52" fill="none" stroke="#b8c6df" stroke-width="6"></rect>
+  </g>
+
+  <!-- Transcript content: clipped so nothing escapes -->
+  <g clip-path="url(#paperClip)">
+    <!-- baseline metrics -->
+    <!-- left padding inside paper -->
+    <!-- each row: tag + line -->
+    <!-- Colors: red=me, blue=other; runs allowed -->
+    <!-- IMPORTANT: no extra grey strip and no line outside paper -->
+    <g transform="translate(200 420)">
+      <!-- row config -->
+      <!-- tag: 42x18, line: variable, both fully inside paper -->
+      <!-- y step: 46 -->
+      <!-- helper function via repetition -->
+
+      <!-- Row 1 (red) -->
+      <rect x="0" y="0" width="42" height="18" rx="9" fill="#f24e3c"></rect>
+      <rect x="64" y="0" width="430" height="18" rx="9" fill="#7f5a64"></rect>
+
+      <!-- Row 2 (red) -->
+      <rect x="0" y="46" width="42" height="18" rx="9" fill="#f24e3c"></rect>
+      <rect x="64" y="46" width="380" height="18" rx="9" fill="#7f5a64"></rect>
+
+      <!-- Row 3 (blue) -->
+      <rect x="0" y="92" width="42" height="18" rx="9" fill="#3498db"></rect>
+      <rect x="64" y="92" width="320" height="18" rx="9" fill="#5b7898"></rect>
+
+      <!-- Row 4 (red) -->
+      <rect x="0" y="138" width="42" height="18" rx="9" fill="#f24e3c"></rect>
+      <rect x="64" y="138" width="410" height="18" rx="9" fill="#7f5a64"></rect>
+
+      <!-- Row 5 (red) -->
+      <rect x="0" y="184" width="42" height="18" rx="9" fill="#f24e3c"></rect>
+      <rect x="64" y="184" width="350" height="18" rx="9" fill="#7f5a64"></rect>
+
+      <!-- Row 6 (blue) -->
+      <rect x="0" y="230" width="42" height="18" rx="9" fill="#3498db"></rect>
+      <rect x="64" y="230" width="390" height="18" rx="9" fill="#5b7898"></rect>
+
+      <!-- Row 7 (blue) -->
+      <rect x="0" y="276" width="42" height="18" rx="9" fill="#3498db"></rect>
+      <rect x="64" y="276" width="420" height="18" rx="9" fill="#5b7898"></rect>
+
+      <!-- Row 8 (blue) -->
+      <rect x="0" y="322" width="42" height="18" rx="9" fill="#3498db"></rect>
+      <rect x="64" y="322" width="330" height="18" rx="9" fill="#5b7898"></rect>
+
+      <!-- Row 9 (red) -->
+      <rect x="0" y="368" width="42" height="18" rx="9" fill="#f24e3c"></rect>
+      <rect x="64" y="368" width="360" height="18" rx="9" fill="#7f5a64"></rect>
+
+      <!-- Row 10 (blue) -->
+      <rect x="0" y="414" width="42" height="18" rx="9" fill="#3498db"></rect>
+      <rect x="64" y="414" width="300" height="18" rx="9" fill="#5b7898"></rect>
+    </g>
+  </g>
+</svg>

@@ -16,7 +16,7 @@ from tkinter.scrolledtext import ScrolledText
 from .config import DEFAULT_OTHER_LABEL, DEFAULT_SELF_LABEL
 from .models import RecordingError, TranscriptionCancelled, TranscriptionOptions
 from .numpy_compat import apply_numpy_fromstring_compat_patch
-from .recording import DualTrackRecorder
+from .recording import DualTrackLevelMonitor, DualTrackRecorder
 from .settings import load_app_settings, save_app_settings
 from .settings import (
     ALLOWED_COMPUTE_TYPES,
@@ -31,6 +31,7 @@ from .settings import (
 from .storage import (
     create_session_dir,
     discover_sessions,
+    read_session_metadata,
     ensure_recordings_root,
     resolve_track_paths,
     session_title,
@@ -52,15 +53,16 @@ class App(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Dialog TXT Recorder")
-        self.geometry("1120x760")
-        self.minsize(900, 600)
+        self.title("Dialog to TXT")
+        self.geometry("620x760")
+        self.minsize(560, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         ensure_recordings_root()
 
         self.transcriber = WhisperTranscriber()
         self.recorder: DualTrackRecorder | None = None
+        self.level_monitor: DualTrackLevelMonitor | None = None
         self.recording_started_at: float | None = None
         self.active_session_dir: Path | None = None
 
@@ -70,6 +72,7 @@ class App(tk.Tk):
 
         self.level_values = {"microphone": 0.0, "desktop": 0.0}
         self.level_last_seen = {"microphone": 0.0, "desktop": 0.0}
+        self.status_text = "ожидание"
         self.last_progress_log_bucket = -1
         self.settings_save_after_id: str | None = None
         self.app_settings = load_app_settings()
@@ -100,182 +103,201 @@ class App(tk.Tk):
         self._refresh_microphones()
         self._refresh_recordings()
         self._set_levels_to_zero()
+        self._start_idle_level_monitor()
+        self.after(250, self._tick_level_meter)
         self.after(150, self._poll_events)
 
     def _build_ui(self) -> None:
         style = ttk.Style(self)
-        style.configure("Treeview", rowheight=24)
+        style.configure("Treeview", rowheight=19)
+        style.configure("Compact.Horizontal.TProgressbar", thickness=8)
 
-        top = ttk.Frame(self, padding=12)
+        top = ttk.Frame(self, padding=6)
         top.pack(fill=tk.BOTH, expand=True)
 
-        controls = ttk.LabelFrame(top, text="Запись", padding=10)
+        controls = ttk.LabelFrame(top, text="Запись", padding=6)
         controls.pack(fill=tk.X)
+        controls.columnconfigure(0, weight=1)
 
-        ttk.Label(controls, text="Микрофон:").grid(row=0, column=0, sticky=tk.W, padx=(0, 8))
-        self.mic_combo = ttk.Combobox(controls, state="readonly", width=62)
-        self.mic_combo.grid(row=0, column=1, sticky=tk.EW)
+        mic_row = ttk.Frame(controls)
+        mic_row.grid(row=0, column=0, sticky=tk.EW)
+        mic_row.columnconfigure(3, weight=1)
+        ttk.Label(mic_row, text="Микрофон:").grid(row=0, column=0, sticky=tk.W)
+        self.mic_combo = ttk.Combobox(mic_row, state="readonly", width=43)
+        self.mic_combo.grid(row=0, column=1, sticky=tk.W, padx=(2, 0))
         self.mic_combo.bind("<<ComboboxSelected>>", self._on_mic_selected)
-        controls.columnconfigure(1, weight=1)
 
         self.refresh_mic_button = ttk.Button(
-            controls, text="Обновить", command=self._refresh_microphones
+            mic_row, text="↻", width=3, command=self._refresh_microphones
         )
-        self.refresh_mic_button.grid(row=0, column=2, padx=(8, 0))
+        self.refresh_mic_button.grid(row=0, column=2, padx=(2, 0), sticky=tk.W)
 
-        self.start_button = ttk.Button(controls, text="Начать запись", command=self._start_recording)
-        self.start_button.grid(row=1, column=0, pady=(10, 0), sticky=tk.W)
-
-        self.stop_button = ttk.Button(
-            controls, text="Остановить запись", command=self._stop_recording, state=tk.DISABLED
+        self.record_button = tk.Button(
+            mic_row,
+            text="● Начать запись",
+            command=self._toggle_recording,
+            bg="#1f8b4c",
+            fg="white",
+            activebackground="#176a38",
+            activeforeground="white",
+            disabledforeground="#d8d8d8",
+            relief=tk.FLAT,
+            bd=0,
+            padx=12,
+            pady=5,
         )
-        self.stop_button.grid(row=1, column=1, pady=(10, 0), sticky=tk.W)
+        self.record_button.grid(row=0, column=4, sticky=tk.E)
 
-        self.recording_time_label = ttk.Label(controls, text="Длительность: 00:00:00")
-        self.recording_time_label.grid(row=1, column=2, pady=(10, 0), sticky=tk.E)
+        self.status_label = ttk.Label(controls, text="")
+        self.status_label.grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
+        self._update_status_line()
 
-        self.status_label = ttk.Label(controls, text="Статус: ожидание")
-        self.status_label.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+        levels_row = ttk.Frame(controls)
+        levels_row.grid(row=2, column=0, sticky=tk.EW, pady=(2, 0))
+        levels_row.columnconfigure(1, weight=1)
+        levels_row.columnconfigure(4, weight=1)
 
-        ttk.Label(controls, text="Уровень mic:").grid(row=3, column=0, sticky=tk.W, pady=(8, 0))
-        self.mic_level = ttk.Progressbar(controls, mode="determinate", maximum=100)
-        self.mic_level.grid(row=3, column=1, sticky=tk.EW, pady=(8, 0))
-        self.mic_level_value = ttk.Label(controls, text="0%")
-        self.mic_level_value.grid(row=3, column=2, sticky=tk.E, pady=(8, 0))
+        ttk.Label(levels_row, text="Mic").grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
+        self.mic_level = ttk.Progressbar(
+            levels_row,
+            mode="determinate",
+            maximum=100,
+            style="Compact.Horizontal.TProgressbar",
+        )
+        self.mic_level.grid(row=0, column=1, sticky=tk.EW, padx=(0, 8))
 
-        ttk.Label(controls, text="Уровень desktop:").grid(row=4, column=0, sticky=tk.W, pady=(4, 0))
-        self.desktop_level = ttk.Progressbar(controls, mode="determinate", maximum=100)
-        self.desktop_level.grid(row=4, column=1, sticky=tk.EW, pady=(4, 0))
-        self.desktop_level_value = ttk.Label(controls, text="0%")
-        self.desktop_level_value.grid(row=4, column=2, sticky=tk.E, pady=(4, 0))
+        ttk.Label(levels_row, text="Desktop").grid(row=0, column=3, sticky=tk.W, padx=(0, 4))
+        self.desktop_level = ttk.Progressbar(
+            levels_row,
+            mode="determinate",
+            maximum=100,
+            style="Compact.Horizontal.TProgressbar",
+        )
+        self.desktop_level.grid(row=0, column=4, sticky=tk.EW)
 
-        self.signal_label = ttk.Label(controls, text="Сигнал: запись не идёт")
-        self.signal_label.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(6, 0))
+        transcribe_box = ttk.LabelFrame(top, text="Транскрибация", padding=6)
+        transcribe_box.pack(fill=tk.X, pady=(6, 0))
+        transcribe_box.columnconfigure(1, weight=1)
 
-        ttk.Label(controls, text="Подпись (вы):").grid(row=6, column=0, sticky=tk.W, pady=(8, 0))
-        self.self_label_entry = ttk.Entry(controls, textvariable=self.self_label_var)
-        self.self_label_entry.grid(row=6, column=1, sticky=tk.EW, pady=(8, 0))
-
-        ttk.Label(controls, text="Подпись (собеседник):").grid(row=7, column=0, sticky=tk.W, pady=(4, 0))
-        self.other_label_entry = ttk.Entry(controls, textvariable=self.other_label_var)
-        self.other_label_entry.grid(row=7, column=1, sticky=tk.EW, pady=(4, 0))
-
+        transcribe_flags = ttk.Frame(transcribe_box)
+        transcribe_flags.grid(row=0, column=0, columnspan=4, sticky=tk.W)
         self.auto_transcribe_check = ttk.Checkbutton(
-            controls,
-            text="Автотранскрибация после остановки записи",
+            transcribe_flags,
+            text="Автотранскрибация после записи",
             variable=self.auto_transcribe_var,
         )
-        self.auto_transcribe_check.grid(row=8, column=0, columnspan=3, sticky=tk.W, pady=(8, 0))
+        self.auto_transcribe_check.grid(row=0, column=0, sticky=tk.W)
 
-        transcribe_box = ttk.LabelFrame(top, text="Транскрибация", padding=10)
-        transcribe_box.pack(fill=tk.X, pady=(12, 0))
-
-        self.transcribe_selected_button = ttk.Button(
-            transcribe_box, text="Транскрибировать выбранную запись", command=self._transcribe_selected
+        speakers_row = ttk.Frame(transcribe_box)
+        speakers_row.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(4, 0))
+        speakers_row.columnconfigure(1, weight=1)
+        speakers_row.columnconfigure(3, weight=1)
+        ttk.Label(speakers_row, text="Метка mic:").grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
+        self.self_label_entry = ttk.Entry(speakers_row, textvariable=self.self_label_var)
+        self.self_label_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 8))
+        ttk.Label(speakers_row, text="Метка desktop:").grid(row=0, column=2, sticky=tk.W, padx=(0, 4))
+        self.other_label_entry = ttk.Entry(speakers_row, textvariable=self.other_label_var)
+        self.other_label_entry.grid(row=0, column=3, sticky=tk.EW, padx=(0, 8))
+        self.include_timestamps_check = ttk.Checkbutton(
+            speakers_row,
+            text="добавить таймметки",
+            variable=self.include_timestamps_var,
         )
-        self.transcribe_selected_button.grid(row=0, column=0, sticky=tk.W)
+        self.include_timestamps_check.grid(row=0, column=4, sticky=tk.W)
 
-        self.cancel_transcribe_button = ttk.Button(
-            transcribe_box,
-            text="Отменить транскрибацию",
-            command=self._cancel_transcription,
-            state=tk.DISABLED,
-        )
-        self.cancel_transcribe_button.grid(row=0, column=1, padx=(8, 0), sticky=tk.W)
-
-        self.refresh_recordings_button = ttk.Button(
-            transcribe_box, text="Обновить список", command=self._refresh_recordings
-        )
-        self.refresh_recordings_button.grid(row=0, column=2, padx=(8, 0), sticky=tk.W)
-
-        self.open_folder_button = ttk.Button(
-            transcribe_box, text="Открыть папку записи", command=self._open_selected_folder
-        )
-        self.open_folder_button.grid(row=0, column=3, padx=(8, 0), sticky=tk.W)
-
-        self.progress = ttk.Progressbar(transcribe_box, mode="determinate", maximum=100)
-        self.progress.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(10, 0))
-        transcribe_box.columnconfigure(0, weight=1)
-
-        self.progress_label = ttk.Label(transcribe_box, text="Прогресс: 0%")
-        self.progress_label.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
-
-        whisper_box = ttk.LabelFrame(top, text="Настройки Whisper", padding=10)
-        whisper_box.pack(fill=tk.X, pady=(12, 0))
-
-        ttk.Label(whisper_box, text="Модель:").grid(row=0, column=0, sticky=tk.W)
+        whisper_row = ttk.Frame(transcribe_box)
+        whisper_row.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(4, 0))
+        ttk.Label(whisper_row, text="Модель:").grid(row=0, column=0, sticky=tk.W)
         self.model_combo = ttk.Combobox(
-            whisper_box,
+            whisper_row,
             state="readonly",
-            width=18,
+            width=10,
             values=list(ALLOWED_MODELS),
             textvariable=self.model_var,
         )
-        self.model_combo.grid(row=0, column=1, sticky=tk.W, padx=(6, 12))
-
-        ttk.Label(whisper_box, text="Язык:").grid(row=0, column=2, sticky=tk.W)
+        self.model_combo.grid(row=0, column=1, sticky=tk.W, padx=(3, 8))
+        ttk.Label(whisper_row, text="Язык:").grid(row=0, column=2, sticky=tk.W)
         self.language_combo = ttk.Combobox(
-            whisper_box,
-            width=10,
+            whisper_row,
+            width=5,
             values=["ru", "en", "auto"],
             textvariable=self.language_var,
         )
-        self.language_combo.grid(row=0, column=3, sticky=tk.W, padx=(6, 12))
-
-        ttk.Label(whisper_box, text="Beam:").grid(row=0, column=4, sticky=tk.W)
+        self.language_combo.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
+        ttk.Label(whisper_row, text="Beam:").grid(row=0, column=4, sticky=tk.W)
         self.beam_spinbox = ttk.Spinbox(
-            whisper_box,
+            whisper_row,
             from_=1,
             to=10,
-            width=5,
+            width=4,
             textvariable=self.beam_size_var,
         )
-        self.beam_spinbox.grid(row=0, column=5, sticky=tk.W, padx=(6, 12))
-
-        ttk.Label(whisper_box, text="Compute:").grid(row=0, column=6, sticky=tk.W)
+        self.beam_spinbox.grid(row=0, column=5, sticky=tk.W, padx=(3, 8))
+        ttk.Label(whisper_row, text="Compute:").grid(row=0, column=6, sticky=tk.W)
         self.compute_type_combo = ttk.Combobox(
-            whisper_box,
+            whisper_row,
             state="readonly",
-            width=12,
+            width=8,
             values=list(ALLOWED_COMPUTE_TYPES),
             textvariable=self.compute_type_var,
         )
-        self.compute_type_combo.grid(row=0, column=7, sticky=tk.W, padx=(6, 12))
-
+        self.compute_type_combo.grid(row=0, column=7, sticky=tk.W, padx=(3, 8))
         self.vad_filter_check = ttk.Checkbutton(
-            whisper_box,
+            whisper_row,
             text="VAD фильтр",
             variable=self.vad_filter_var,
         )
         self.vad_filter_check.grid(row=0, column=8, sticky=tk.W)
 
-        self.include_timestamps_check = ttk.Checkbutton(
-            whisper_box,
-            text="Добавлять таймметки в transcript.txt",
-            variable=self.include_timestamps_var,
+        ttk.Label(transcribe_box, text="Прогресс:").grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
+        self.progress = ttk.Progressbar(transcribe_box, mode="determinate", maximum=100)
+        self.progress.grid(row=3, column=1, sticky=tk.EW, pady=(6, 0), padx=(6, 0))
+        self.progress_label = ttk.Label(transcribe_box, text="0%")
+        self.progress_label.grid(row=3, column=2, sticky=tk.W, padx=(6, 0), pady=(6, 0))
+
+        self.cancel_transcribe_button = ttk.Button(
+            transcribe_box,
+            text="Отменить",
+            command=self._cancel_transcription,
+            state=tk.DISABLED,
         )
-        self.include_timestamps_check.grid(row=1, column=0, columnspan=9, sticky=tk.W, pady=(8, 0))
+        self.cancel_transcribe_button.grid(row=3, column=3, sticky=tk.E, padx=(6, 0), pady=(6, 0))
 
-        recordings_box = ttk.LabelFrame(top, text="Существующие записи", padding=10)
-        recordings_box.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
+        recordings_box = ttk.LabelFrame(top, text="Существующие записи", padding=6)
+        recordings_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
 
-        columns = ("session", "audio", "txt", "path")
+        recordings_actions = ttk.Frame(recordings_box)
+        recordings_actions.pack(fill=tk.X, pady=(0, 4))
+        self.transcribe_selected_button = ttk.Button(
+            recordings_actions, text="Транскрибировать выбранную", command=self._transcribe_selected
+        )
+        self.transcribe_selected_button.grid(row=0, column=0, sticky=tk.W)
+        self.refresh_recordings_button = ttk.Button(
+            recordings_actions, text="Обновить список", command=self._refresh_recordings
+        )
+        self.refresh_recordings_button.grid(row=0, column=1, sticky=tk.W, padx=(4, 0))
+        self.open_folder_button = ttk.Button(
+            recordings_actions, text="Открыть папку", command=self._open_selected_folder
+        )
+        self.open_folder_button.grid(row=0, column=2, sticky=tk.W, padx=(4, 0))
+
+        columns = ("session", "duration", "audio", "txt")
         self.recordings_tree = ttk.Treeview(recordings_box, columns=columns, show="headings")
         self.recordings_tree.heading("session", text="Сессия")
+        self.recordings_tree.heading("duration", text="Длительность")
         self.recordings_tree.heading("audio", text="Аудио")
         self.recordings_tree.heading("txt", text="TXT")
-        self.recordings_tree.heading("path", text="Папка")
-        self.recordings_tree.column("session", width=190, anchor=tk.W)
-        self.recordings_tree.column("audio", width=120, anchor=tk.CENTER)
-        self.recordings_tree.column("txt", width=80, anchor=tk.CENTER)
-        self.recordings_tree.column("path", width=640, anchor=tk.W)
+        self.recordings_tree.column("session", width=220, anchor=tk.W, stretch=True)
+        self.recordings_tree.column("duration", width=100, anchor=tk.CENTER, stretch=False)
+        self.recordings_tree.column("audio", width=72, anchor=tk.CENTER, stretch=False)
+        self.recordings_tree.column("txt", width=48, anchor=tk.CENTER, stretch=False)
         self.recordings_tree.pack(fill=tk.BOTH, expand=True)
         self.recordings_tree.bind("<<TreeviewSelect>>", self._on_recording_selected)
         self.recordings_tree.bind("<Double-1>", self._on_recording_double_click)
 
-        log_box = ttk.LabelFrame(top, text="Лог событий", padding=10)
-        log_box.pack(fill=tk.BOTH, expand=False, pady=(12, 0))
-        self.log_text = ScrolledText(log_box, height=9, wrap=tk.WORD, state=tk.DISABLED)
+        log_box = ttk.LabelFrame(top, text="Лог событий", padding=6)
+        log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
+        self.log_text = ScrolledText(log_box, height=4, wrap=tk.WORD, state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     def _refresh_microphones(self) -> None:
@@ -303,6 +325,7 @@ class App(tk.Tk):
         else:
             self._set_status("Микрофоны не найдены")
             self._log_event("Микрофоны не найдены")
+        self._start_idle_level_monitor(restart=True)
 
     def _refresh_recordings(self) -> None:
         for row in self.recordings_tree.get_children():
@@ -312,11 +335,12 @@ class App(tk.Tk):
         for session_dir in sessions:
             audio_status, txt_status = self._session_status(session_dir)
             display_name = session_title(session_dir)
+            duration_text = self._session_duration_text(session_dir)
             self.recordings_tree.insert(
                 "",
                 tk.END,
                 iid=str(session_dir),
-                values=(display_name, audio_status, txt_status, str(session_dir)),
+                values=(display_name, duration_text, audio_status, txt_status),
             )
         if sessions and not self.recordings_tree.selection():
             self.recordings_tree.selection_set(str(sessions[0]))
@@ -333,14 +357,14 @@ class App(tk.Tk):
         can_transcribe = self._session_audio_ready(session)
         has_transcript = transcript_path(session).exists()
         if can_transcribe and has_transcript:
-            self.transcribe_selected_button.configure(text="Перетранскрибировать выбранную запись")
+            self.transcribe_selected_button.configure(text="Перетранскрибировать")
         elif can_transcribe:
-            self.transcribe_selected_button.configure(text="Транскрибировать выбранную запись")
+            self.transcribe_selected_button.configure(text="Транскрибировать выбранную")
         else:
             self.transcribe_selected_button.configure(text="Нельзя: нет обеих дорожек")
+        self.open_folder_button.configure(state=tk.NORMAL)
         if not (self.transcription_thread and self.transcription_thread.is_alive()):
             self.transcribe_selected_button.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
-            self.open_folder_button.configure(state=tk.NORMAL)
 
     def _on_recording_double_click(self, _event=None) -> None:
         self._open_selected_folder()
@@ -353,6 +377,7 @@ class App(tk.Tk):
 
     def _on_mic_selected(self, _event=None) -> None:
         self._save_app_settings()
+        self._start_idle_level_monitor(restart=True)
 
     def _selected_microphone_name(self) -> str:
         selected_name = self.mic_combo.get().strip() if hasattr(self, "mic_combo") else ""
@@ -531,6 +556,47 @@ class App(tk.Tk):
             raise RuntimeError("Loopback-источник для текущего устройства вывода не найден.")
         return speaker, loopback
 
+    def _emit_level(self, source: str, level: float) -> None:
+        self.event_queue.put(("level", source, level))
+
+    def _emit_level_monitor_error(self, source: str, message: str) -> None:
+        self.event_queue.put(("level_monitor_error", source, message))
+
+    def _start_idle_level_monitor(self, restart: bool = False) -> None:
+        if self.recorder is not None:
+            return
+        if self.level_monitor is not None and not restart:
+            return
+        if self.level_monitor is not None:
+            self._stop_idle_level_monitor()
+
+        mic = self._resolve_selected_microphone()
+        if mic is None:
+            self._set_levels_to_zero()
+            return
+
+        try:
+            _, desktop_loopback = self._resolve_desktop_loopback()
+        except Exception as exc:  # pragma: no cover - hardware-specific
+            self._set_levels_to_zero()
+            self._log_event(f"Монитор уровней недоступен: {exc}")
+            return
+
+        self.level_monitor = DualTrackLevelMonitor(
+            mic=mic,
+            desktop=desktop_loopback,
+            level_callback=self._emit_level,
+            error_callback=self._emit_level_monitor_error,
+        )
+        self.level_monitor.start()
+
+    def _stop_idle_level_monitor(self) -> None:
+        if self.level_monitor is None:
+            return
+        monitor = self.level_monitor
+        self.level_monitor = None
+        monitor.stop()
+
     def _start_recording(self) -> None:
         if self.recorder is not None:
             return
@@ -549,6 +615,7 @@ class App(tk.Tk):
             messagebox.showerror("Ошибка", f"Не удалось получить устройство рабочего стола:\n{exc}")
             self._log_event(f"Ошибка desktop-захвата: {exc}")
             return
+        self._stop_idle_level_monitor()
 
         created_at, session_dir = create_session_dir()
         self_label, other_label = self._current_speaker_labels()
@@ -573,14 +640,16 @@ class App(tk.Tk):
         self._set_levels_to_zero()
         self.recorder.start()
         self._set_recording_ui_state(is_recording=True)
-        self._set_status(f"Идёт запись: {session_dir.name}")
+        self._set_status(f"Идёт запись: {session_dir.name} · 00:00:00")
         self._log_event(f"Старт записи: {session_dir}")
         self._log_event(f"Mic: {mic.name}")
         self._log_event(f"Desktop (loopback): {speaker.name}")
         self._log_event(f"Подписи: [{self_label}] / [{other_label}]")
         self._tick_recording_timer()
 
-    def _stop_recording(self, auto_transcribe: bool | None = None) -> None:
+    def _stop_recording(
+        self, auto_transcribe: bool | None = None, restart_level_monitor: bool = True
+    ) -> None:
         if self.recorder is None:
             return
 
@@ -602,6 +671,8 @@ class App(tk.Tk):
             self._refresh_recordings()
             self._log_event(f"Ошибка записи: {exc}")
             messagebox.showerror("Ошибка записи", str(exc))
+            if restart_level_monitor:
+                self._start_idle_level_monitor(restart=True)
             return
 
         duration = 0
@@ -611,20 +682,24 @@ class App(tk.Tk):
         self.recording_started_at = None
         self._set_recording_ui_state(is_recording=False)
         self._set_levels_to_zero()
-        self.recording_time_label.configure(text=f"Длительность: {format_seconds(duration)}")
 
         if self.active_session_dir:
             update_session_metadata(self.active_session_dir, duration)
 
+        duration_text = format_seconds(duration)
         if auto_transcribe:
-            self._set_status("Запись остановлена. Запускаю транскрибацию...")
-            self._log_event(f"Запись остановлена ({format_seconds(duration)}), запускаю транскрибацию")
-        else:
-            self._set_status("Запись остановлена. Автотранскрибация отключена")
-            self._log_event(
-                f"Запись остановлена ({format_seconds(duration)}), автотранскрибация отключена"
+            self._set_status(
+                f"Запись остановлена ({duration_text}). Запускаю транскрибацию..."
             )
+            self._log_event(f"Запись остановлена ({duration_text}), запускаю транскрибацию")
+        else:
+            self._set_status(
+                f"Запись остановлена ({duration_text}). Автотранскрибация отключена"
+            )
+            self._log_event(f"Запись остановлена ({duration_text}), автотранскрибация отключена")
         self._refresh_recordings()
+        if restart_level_monitor:
+            self._start_idle_level_monitor(restart=True)
 
         session_dir = self.active_session_dir
         self.active_session_dir = None
@@ -635,10 +710,14 @@ class App(tk.Tk):
         if self.recorder is None or self.recording_started_at is None:
             return
         elapsed = time.time() - self.recording_started_at
+        session_name = self.active_session_dir.name if self.active_session_dir else "сессия"
+        self._set_status(f"Идёт запись: {session_name} · {format_seconds(elapsed)}")
+        self.after(250, self._tick_recording_timer)
+
+    def _tick_level_meter(self) -> None:
         self._decay_levels()
         self._render_levels()
-        self.recording_time_label.configure(text=f"Длительность: {format_seconds(elapsed)}")
-        self.after(250, self._tick_recording_timer)
+        self.after(250, self._tick_level_meter)
 
     def _transcribe_selected(self) -> None:
         session = self._selected_session()
@@ -665,7 +744,7 @@ class App(tk.Tk):
 
         self.cancel_transcription_event.clear()
         self.progress.configure(value=0)
-        self.progress_label.configure(text="Прогресс: 0%")
+        self.progress_label.configure(text="0%")
         self.last_progress_log_bucket = -1
         options = self._current_transcription_options()
         self._set_transcription_ui_state(is_running=True)
@@ -723,11 +802,20 @@ class App(tk.Tk):
                 self._render_levels()
             return
 
+        if kind == "level_monitor_error":
+            _, source, message = event
+            if source in self.level_values:
+                self.level_values[source] = 0.0
+                self.level_last_seen[source] = 0.0
+                self._render_levels()
+            self._log_event(f"Ошибка монитора уровней ({source}): {message}")
+            return
+
         if kind == "progress":
             _, message, pct = event
             pct_int = int(max(0, min(100, pct)))
             self.progress.configure(value=pct_int)
-            self.progress_label.configure(text=f"Прогресс: {pct_int}%")
+            self.progress_label.configure(text=f"{pct_int}%")
             self._set_status(message)
             progress_bucket = pct_int // 10
             if progress_bucket > self.last_progress_log_bucket:
@@ -737,7 +825,7 @@ class App(tk.Tk):
 
         self._set_transcription_ui_state(is_running=False)
         self.progress.configure(value=0)
-        self.progress_label.configure(text="Прогресс: 0%")
+        self.progress_label.configure(text="0%")
         self._refresh_recordings()
 
         if kind == "done":
@@ -759,39 +847,73 @@ class App(tk.Tk):
             messagebox.showerror("Ошибка транскрибации", message)
             return
 
+    def _toggle_recording(self) -> None:
+        if self.recorder is None:
+            self._start_recording()
+        else:
+            self._stop_recording()
+
+    def _set_record_button_style(self, is_recording: bool) -> None:
+        if is_recording:
+            self.record_button.configure(
+                text="■ Остановить запись",
+                bg="#b23b3b",
+                activebackground="#8c2f2f",
+            )
+            return
+        self.record_button.configure(
+            text="● Начать запись",
+            bg="#1f8b4c",
+            activebackground="#176a38",
+        )
+
     def _set_recording_ui_state(self, is_recording: bool) -> None:
-        self.start_button.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.stop_button.configure(state=tk.NORMAL if is_recording else tk.DISABLED)
+        self._set_record_button_style(is_recording)
+        self.record_button.configure(state=tk.NORMAL)
         self.mic_combo.configure(state=tk.DISABLED if is_recording else "readonly")
         self.refresh_mic_button.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.self_label_entry.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.other_label_entry.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.auto_transcribe_check.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.model_combo.configure(state=tk.DISABLED if is_recording else "readonly")
-        self.language_combo.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.beam_spinbox.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.vad_filter_check.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
-        self.compute_type_combo.configure(state=tk.DISABLED if is_recording else "readonly")
-        self.include_timestamps_check.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
 
     def _set_transcription_ui_state(self, is_running: bool) -> None:
         if is_running:
             self.transcribe_selected_button.configure(state=tk.DISABLED)
-            self.open_folder_button.configure(state=tk.DISABLED)
         else:
             session = self._selected_session()
             can_transcribe = bool(session and self._session_audio_ready(session))
             self.transcribe_selected_button.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
-            self.open_folder_button.configure(state=tk.NORMAL if session else tk.DISABLED)
+        self.self_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.other_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.auto_transcribe_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.model_combo.configure(state=tk.DISABLED if is_running else "readonly")
+        self.language_combo.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.beam_spinbox.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.vad_filter_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.compute_type_combo.configure(state=tk.DISABLED if is_running else "readonly")
+        self.include_timestamps_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
         self.cancel_transcribe_button.configure(state=tk.NORMAL if is_running else tk.DISABLED)
-        self.refresh_recordings_button.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        session = self._selected_session()
+        self.refresh_recordings_button.configure(state=tk.NORMAL)
+        self.open_folder_button.configure(state=tk.NORMAL if session else tk.DISABLED)
 
     def _set_status(self, text: str) -> None:
-        self.status_label.configure(text=f"Статус: {text}")
+        self.status_text = text
+        self._update_status_line()
+
+    def _update_status_line(self) -> None:
+        self.status_label.configure(text=f"Статус: {self.status_text}")
 
     def _session_audio_ready(self, session_dir: Path) -> bool:
         mic_path, desktop_path = resolve_track_paths(session_dir)
         return mic_path is not None and desktop_path is not None
+
+    def _session_duration_text(self, session_dir: Path) -> str:
+        payload = read_session_metadata(session_dir)
+        try:
+            duration_seconds = int(payload.get("duration_seconds", ""))
+        except (TypeError, ValueError):
+            return "--:--:--"
+        if duration_seconds < 0:
+            return "--:--:--"
+        return format_seconds(duration_seconds)
 
     def _session_status(self, session_dir: Path) -> tuple[str, str]:
         mic_path, desktop_path = resolve_track_paths(session_dir)
@@ -830,19 +952,6 @@ class App(tk.Tk):
         desktop_pct = int(max(0, min(100, self.level_values["desktop"] * 100)))
         self.mic_level.configure(value=mic_pct)
         self.desktop_level.configure(value=desktop_pct)
-        self.mic_level_value.configure(text=f"{mic_pct}%")
-        self.desktop_level_value.configure(text=f"{desktop_pct}%")
-
-        if self.recorder is None:
-            self.signal_label.configure(text="Сигнал: запись не идёт")
-            return
-
-        now = time.monotonic()
-        mic_alive = now - self.level_last_seen["microphone"] < 1.2 and mic_pct > 1
-        desktop_alive = now - self.level_last_seen["desktop"] < 1.2 and desktop_pct > 1
-        mic_state = "есть" if mic_alive else "нет"
-        desktop_state = "есть" if desktop_alive else "нет"
-        self.signal_label.configure(text=f"Сигнал: mic {mic_state}, desktop {desktop_state}")
 
     def _log_event(self, text: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -858,8 +967,9 @@ class App(tk.Tk):
 
     def _on_close(self) -> None:
         self._save_app_settings()
+        self._stop_idle_level_monitor()
         if self.recorder is not None:
-            self._stop_recording(auto_transcribe=False)
+            self._stop_recording(auto_transcribe=False, restart_level_monitor=False)
         if self.transcription_thread and self.transcription_thread.is_alive():
             self.cancel_transcription_event.set()
             self._log_event("Окно закрывается: отправлен запрос на отмену транскрибации")
