@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -101,10 +102,15 @@ UI_TEXTS = {
         "log_folder_opened": "Открыта папка: {path}",
         "log_open_folder_error": "Ошибка открытия папки {path}: {error}",
         "msg_open_folder_failed": "Не удалось открыть папку:\n{path}\n\n{error}",
-        "err_no_output_device": "Не найдено устройство вывода для loopback-записи.",
+        "err_no_output_device": "Не найдено устройство вывода для desktop-записи.",
         "err_no_output_device_id": "У устройства вывода отсутствует ID для loopback.",
         "err_open_loopback_failed": "Не удалось открыть loopback-источник: {error}",
-        "err_loopback_not_found": "Loopback-источник для текущего устройства вывода не найден.",
+        "err_list_desktop_sources_failed": "Не удалось получить список источников desktop-аудио: {error}",
+        "err_loopback_not_found": "Не найден источник desktop-аудио.",
+        "err_desktop_source_not_found_macos": (
+            "На macOS не найден источник desktop-аудио. "
+            "Используйте virtual loopback-устройство (например, BlackHole/Soundflower/Loopback)."
+        ),
         "log_level_monitor_unavailable": "Монитор уровней недоступен: {error}",
         "msg_wait_transcription_complete": "Сначала дождитесь завершения текущей транскрибации.",
         "msg_select_microphone": "Выберите микрофон.",
@@ -113,7 +119,7 @@ UI_TEXTS = {
         "status_recording_active": "Идёт запись: {session} · {duration}",
         "log_recording_started": "Старт записи: {session_dir}",
         "log_mic_source": "Mic: {mic}",
-        "log_desktop_source": "Desktop (loopback): {desktop}",
+        "log_desktop_source": "Desktop: {desktop}",
         "log_speaker_labels": "Подписи: [{self_label}] / [{other_label}]",
         "status_recording_error": "Ошибка записи",
         "log_recording_error": "Ошибка записи: {error}",
@@ -199,10 +205,15 @@ UI_TEXTS = {
         "log_folder_opened": "Opened folder: {path}",
         "log_open_folder_error": "Failed to open folder {path}: {error}",
         "msg_open_folder_failed": "Failed to open folder:\n{path}\n\n{error}",
-        "err_no_output_device": "No output device found for loopback recording.",
+        "err_no_output_device": "No output device found for desktop recording.",
         "err_no_output_device_id": "Output device does not provide an ID for loopback.",
         "err_open_loopback_failed": "Failed to open loopback source: {error}",
-        "err_loopback_not_found": "Loopback source for current output device was not found.",
+        "err_list_desktop_sources_failed": "Failed to list desktop audio sources: {error}",
+        "err_loopback_not_found": "Desktop audio source was not found.",
+        "err_desktop_source_not_found_macos": (
+            "Desktop audio source was not found on macOS. "
+            "Use a virtual loopback device (for example, BlackHole/Soundflower/Loopback)."
+        ),
         "log_level_monitor_unavailable": "Level monitor is unavailable: {error}",
         "msg_wait_transcription_complete": "Wait for the current transcription to complete first.",
         "msg_select_microphone": "Select a microphone.",
@@ -211,7 +222,7 @@ UI_TEXTS = {
         "status_recording_active": "Recording: {session} · {duration}",
         "log_recording_started": "Recording started: {session_dir}",
         "log_mic_source": "Mic: {mic}",
-        "log_desktop_source": "Desktop (loopback): {desktop}",
+        "log_desktop_source": "Desktop: {desktop}",
         "log_speaker_labels": "Labels: [{self_label}] / [{other_label}]",
         "status_recording_error": "Recording error",
         "log_recording_error": "Recording error: {error}",
@@ -251,6 +262,18 @@ UI_TEXTS = {
 SYSTEM_MICROPHONE_LABEL_PREFIXES = (
     f"{UI_TEXTS['ru']['system_microphone']} (",
     f"{UI_TEXTS['en']['system_microphone']} (",
+)
+
+DESKTOP_SOURCE_NAME_HINTS = (
+    "loopback",
+    "monitor",
+    "stereo mix",
+    "what u hear",
+    "blackhole",
+    "soundflower",
+    "cable output",
+    "vb-cable",
+    "loopback audio",
 )
 
 
@@ -848,23 +871,102 @@ class App(tk.Tk):
                 self._tr("msg_open_folder_failed", path=path, error=exc),
             )
 
-    def _resolve_desktop_loopback(self):
-        speaker = sc.default_speaker()
-        if speaker is None:
-            raise RuntimeError(self._tr("err_no_output_device"))
+    @staticmethod
+    def _sound_device_name(device) -> str:
+        if device is None:
+            return ""
+        name = str(getattr(device, "name", "")).strip()
+        if name:
+            return name
+        return str(getattr(device, "id", "")).strip()
 
-        speaker_id = getattr(speaker, "id", None)
-        if not speaker_id:
-            raise RuntimeError(self._tr("err_no_output_device_id"))
-
+    @staticmethod
+    def _sound_device_is_loopback(device) -> bool:
         try:
-            loopback = sc.get_microphone(id=str(speaker_id), include_loopback=True)
-        except Exception as exc:
-            raise RuntimeError(self._tr("err_open_loopback_failed", error=exc)) from exc
+            return bool(getattr(device, "isloopback", False))
+        except Exception:
+            return False
 
-        if loopback is None:
-            raise RuntimeError(self._tr("err_loopback_not_found"))
-        return speaker, loopback
+    def _desktop_source_score(self, device, preferred_speaker_name: str) -> int:
+        name = self._sound_device_name(device).lower()
+        if not name:
+            return 0
+
+        score = 0
+        if self._sound_device_is_loopback(device):
+            score += 100
+
+        preferred = preferred_speaker_name.lower()
+        if preferred and preferred in name:
+            score += 40
+        if "monitor of" in name:
+            score += 40
+        if "monitor" in name or "loopback" in name:
+            score += 30
+        if any(hint in name for hint in DESKTOP_SOURCE_NAME_HINTS):
+            score += 20
+        return score
+
+    def _pick_desktop_source_candidate(self, devices: list, preferred_speaker_name: str):
+        best_device = None
+        best_score = 0
+        for device in devices:
+            score = self._desktop_source_score(device, preferred_speaker_name)
+            if score > best_score:
+                best_device = device
+                best_score = score
+        return best_device
+
+    def _resolve_desktop_loopback(self):
+        speaker = None
+        preferred_speaker_name = ""
+        try:
+            speaker = sc.default_speaker()
+        except Exception:
+            speaker = None
+
+        if speaker is not None:
+            preferred_speaker_name = self._sound_device_name(speaker)
+            speaker_id = getattr(speaker, "id", None)
+            if speaker_id:
+                try:
+                    loopback = sc.get_microphone(id=str(speaker_id), include_loopback=True)
+                except Exception as exc:
+                    loopback = None
+                    loopback_open_error = exc
+                else:
+                    loopback_open_error = None
+
+                if loopback is not None:
+                    if self._desktop_source_score(loopback, preferred_speaker_name) > 0:
+                        return speaker, loopback
+                if loopback_open_error is not None:
+                    self._log_event(self._tr("err_open_loopback_failed", error=loopback_open_error))
+            else:
+                self._log_event(self._tr("err_no_output_device_id"))
+        else:
+            self._log_event(self._tr("err_no_output_device"))
+
+        include_loopback = sys.platform != "darwin"
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="macOS does not support loopback recording functionality",
+                    category=Warning,
+                )
+                desktop_sources = list(sc.all_microphones(include_loopback=include_loopback))
+        except Exception as exc:
+            raise RuntimeError(self._tr("err_list_desktop_sources_failed", error=exc)) from exc
+
+        candidate = self._pick_desktop_source_candidate(desktop_sources, preferred_speaker_name)
+        if candidate is not None:
+            source_info = speaker if speaker is not None else candidate
+            return source_info, candidate
+
+        if sys.platform == "darwin":
+            raise RuntimeError(self._tr("err_desktop_source_not_found_macos"))
+        raise RuntimeError(self._tr("err_loopback_not_found"))
 
     def _emit_level(self, source: str, level: float) -> None:
         self.event_queue.put(("level", source, level))
@@ -939,7 +1041,7 @@ class App(tk.Tk):
             session_dir=session_dir,
             created_at=created_at,
             mic_name=mic.name,
-            desktop_source=speaker.name,
+            desktop_source=self._sound_device_name(speaker),
             speaker_self=self_label,
             speaker_other=other_label,
         )
@@ -959,7 +1061,7 @@ class App(tk.Tk):
         self._set_status(self._tr("status_recording_active", session=session_dir.name, duration="00:00:00"))
         self._log_event(self._tr("log_recording_started", session_dir=session_dir))
         self._log_event(self._tr("log_mic_source", mic=mic.name))
-        self._log_event(self._tr("log_desktop_source", desktop=speaker.name))
+        self._log_event(self._tr("log_desktop_source", desktop=self._sound_device_name(speaker)))
         self._log_event(
             self._tr("log_speaker_labels", self_label=self_label, other_label=other_label)
         )

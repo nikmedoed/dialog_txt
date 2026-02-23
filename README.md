@@ -25,28 +25,33 @@ Transcript example:
 ### Requirements
 
 - Python 3.10+
-- Windows (uses `os.startfile`, loopback capture via `soundcard`)
-- NVIDIA GPU + CUDA (transcriber currently runs with `device="cuda"`)
+- Windows, macOS, or Linux
+- For desktop/system-audio capture:
+  - Windows: works via WASAPI loopback
+  - Linux (PulseAudio/PipeWire): works via monitor/loopback sources
+  - macOS: requires a virtual loopback input (for example BlackHole/Soundflower/Loopback)
+- Optional NVIDIA GPU + CUDA (if unavailable, transcription falls back to CPU)
 
 ### Installation
 
 With `uv` (recommended):
 
-```powershell
+```bash
 uv sync
 ```
 
 Or with `pip`:
 
-```powershell
+```bash
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\Activate.ps1  # Windows PowerShell
 pip install -e .
 ```
 
 ### Run
 
-```powershell
+```bash
 python main.py
 ```
 
@@ -92,14 +97,16 @@ recordings/
 
 ### Limitations
 
-- Current transcription pipeline expects a CUDA-capable GPU.
-- System-audio recording requires a working loopback source for the default output device.
+- Transcription on CPU is noticeably slower than on CUDA GPU.
+- On macOS, system-audio capture requires an external virtual loopback device.
+- On Linux, desktop capture depends on available monitor sources in PulseAudio/PipeWire.
 
 ### Troubleshooting
 
 - No microphones listed: click `Refresh` and verify input devices in OS settings.
-- Desktop capture error: check default output device and loopback support.
-- Transcription error: verify CUDA/driver compatibility and selected `compute_type`.
+- Desktop capture error on macOS: install/select a virtual loopback input (BlackHole/Soundflower/Loopback).
+- Desktop capture error on Linux: check that monitor sources are exposed by PulseAudio/PipeWire.
+- Transcription error: if CUDA is unavailable, use `compute_type=int8` for CPU mode.
 
 ---
 
@@ -126,28 +133,33 @@ recordings/
 ### Требования
 
 - Python 3.10+
-- Windows (используется `os.startfile`, loopback через `soundcard`)
-- NVIDIA GPU + CUDA (в коде транскрибации модель запускается с `device="cuda"`)
+- Windows, macOS или Linux
+- Для записи desktop/system audio:
+  - Windows: через WASAPI loopback
+  - Linux (PulseAudio/PipeWire): через monitor/loopback-источники
+  - macOS: требуется virtual loopback-устройство (например BlackHole/Soundflower/Loopback)
+- NVIDIA GPU + CUDA не обязателен: без CUDA транскрибация автоматически перейдёт на CPU
 
 ### Установка
 
 Через `uv` (рекомендуется):
 
-```powershell
+```bash
 uv sync
 ```
 
 Или через `pip`:
 
-```powershell
+```bash
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\Activate.ps1  # Windows PowerShell
 pip install -e .
 ```
 
 ### Запуск
 
-```powershell
+```bash
 python main.py
 ```
 
@@ -193,11 +205,13 @@ recordings/
 
 ### Ограничения
 
-- Текущая реализация транскрибатора ожидает CUDA GPU.
-- Для корректной записи системного звука нужен доступный loopback-источник устройства вывода.
+- На CPU транскрибация работает заметно медленнее, чем на CUDA GPU.
+- На macOS запись системного звука требует внешнее virtual loopback-устройство.
+- На Linux desktop-захват зависит от monitor-источников PulseAudio/PipeWire.
 
 ### Диагностика
 
 - Нет микрофона в списке: нажмите `Обновить`, проверьте системные устройства ввода.
-- Ошибка desktop-захвата: проверьте устройство вывода по умолчанию и поддержку loopback.
-- Ошибка транскрибации: проверьте совместимость CUDA/драйвера и выбранный `compute_type`.
+- Ошибка desktop-захвата на macOS: установите/выберите virtual loopback-вход (BlackHole/Soundflower/Loopback).
+- Ошибка desktop-захвата на Linux: проверьте, что PulseAudio/PipeWire публикует monitor-источники.
+- Ошибка транскрибации: если CUDA недоступна, используйте `compute_type=int8` для CPU-режима.

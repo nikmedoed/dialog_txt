@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+import ctranslate2
 import soundfile as sf
 from faster_whisper import WhisperModel
 
@@ -14,28 +15,97 @@ from .utils import format_seconds, normalize_text
 
 
 class WhisperTranscriber:
+    COMPUTE_TYPE_FALLBACK_ORDER = (
+        "int8_float16",
+        "float16",
+        "int8",
+        "float32",
+        "int8_float32",
+        "bfloat16",
+        "int8_bfloat16",
+        "int16",
+    )
+
     def __init__(self):
-        self._models: dict[tuple[str, str], WhisperModel] = {}
+        self._models: dict[tuple[str, str, str], WhisperModel] = {}
         self._model_lock = threading.Lock()
+        self._cuda_available = self._detect_cuda_availability()
+
+    @staticmethod
+    def _detect_cuda_availability() -> bool:
+        try:
+            return ctranslate2.get_cuda_device_count() > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _supported_compute_types(device: str) -> set[str]:
+        try:
+            return set(ctranslate2.get_supported_compute_types(device))
+        except Exception:
+            return set()
+
+    def _model_load_plan(self, requested_compute_type: str) -> list[tuple[str, str]]:
+        devices = ["cuda", "cpu"] if self._cuda_available else ["cpu"]
+        requested = requested_compute_type.strip()
+        plan: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for device in devices:
+            supported = self._supported_compute_types(device)
+            if not supported:
+                continue
+
+            compute_candidates: list[str] = []
+            if requested in supported:
+                compute_candidates.append(requested)
+            for candidate in self.COMPUTE_TYPE_FALLBACK_ORDER:
+                if candidate in supported and candidate not in compute_candidates:
+                    compute_candidates.append(candidate)
+            if not compute_candidates:
+                compute_candidates.extend(sorted(supported))
+
+            for compute_type in compute_candidates:
+                key = (device, compute_type)
+                if key in seen:
+                    continue
+                seen.add(key)
+                plan.append(key)
+        return plan
 
     def _load_model(
         self, options: TranscriptionOptions, progress_cb: Callable[[str, float], None]
     ) -> WhisperModel:
-        key = (options.model_name, options.compute_type)
-        with self._model_lock:
-            model = self._models.get(key)
-            if model is None:
+        load_plan = self._model_load_plan(options.compute_type)
+        if not load_plan:
+            raise RuntimeError("Не удалось определить поддерживаемые вычислительные устройства.")
+
+        errors: list[str] = []
+        for device, compute_type in load_plan:
+            key = (options.model_name, device, compute_type)
+            with self._model_lock:
+                model = self._models.get(key)
+                if model is not None:
+                    return model
+
                 progress_cb(
-                    f"Загрузка модели {options.model_name} ({options.compute_type}) на GPU...",
+                    f"Загрузка модели {options.model_name} ({compute_type}) на {device.upper()}...",
                     1.0,
                 )
-                model = WhisperModel(
-                    options.model_name,
-                    device="cuda",
-                    compute_type=options.compute_type,
-                )
+                try:
+                    model = WhisperModel(
+                        options.model_name,
+                        device=device,
+                        compute_type=compute_type,
+                    )
+                except Exception as exc:
+                    errors.append(f"{device}/{compute_type}: {exc}")
+                    continue
                 self._models[key] = model
-        return model
+                return model
+
+        joined = "; ".join(errors) if errors else "unknown initialization error"
+        raise RuntimeError(f"Не удалось загрузить модель {options.model_name}: {joined}")
 
     def transcribe_session(
         self,
