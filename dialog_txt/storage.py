@@ -10,6 +10,7 @@ from .config import (
     DEFAULT_SELF_LABEL,
     DESKTOP_FILE_NAME,
     METADATA_FILE_NAME,
+    MIX_FILE_NAME,
     MIC_FILE_NAME,
     RECORDINGS_ROOT,
     SAMPLE_RATE,
@@ -55,6 +56,7 @@ def write_initial_metadata(
         "files": {
             "mic": MIC_FILE_NAME,
             "desktop": DESKTOP_FILE_NAME,
+            "mix": MIX_FILE_NAME,
             "transcript": TRANSCRIPT_FILE_NAME,
         },
     }

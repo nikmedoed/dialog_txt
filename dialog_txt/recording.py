@@ -10,7 +10,7 @@ from typing import Callable
 
 import soundfile as sf
 
-from .config import BLOCK_FRAMES, DESKTOP_FILE_NAME, MIC_FILE_NAME, SAMPLE_RATE
+from .config import BLOCK_FRAMES, DESKTOP_FILE_NAME, MIC_FILE_NAME, MIX_FILE_NAME, SAMPLE_RATE
 from .models import RecordingError
 from .utils import to_mono
 
@@ -39,6 +39,10 @@ class DualTrackRecorder:
     def desktop_path(self) -> Path:
         return self.session_dir / DESKTOP_FILE_NAME
 
+    @property
+    def mix_path(self) -> Path:
+        return self.session_dir / MIX_FILE_NAME
+
     def start(self) -> None:
         self.stop_event.clear()
         self.threads = [
@@ -60,6 +64,12 @@ class DualTrackRecorder:
         self.stop_event.set()
         for thread in self.threads:
             thread.join()
+        if not self.error_queue.empty():
+            return
+        try:
+            self._write_mix()
+        except Exception as exc:
+            self.error_queue.put(RuntimeError(f"Mix render error: {exc}"))
 
     def raise_if_failed(self) -> None:
         errors: list[str] = []
@@ -93,6 +103,42 @@ class DualTrackRecorder:
         except Exception as exc:  # pragma: no cover - device-specific failures
             self.stop_event.set()
             self.error_queue.put(RuntimeError(f"Capture error ({source_name}): {exc}"))
+
+    def _write_mix(self) -> None:
+        if not self.mic_path.exists() or not self.desktop_path.exists():
+            return
+
+        with sf.SoundFile(str(self.mic_path), mode="r") as mic_file:
+            with sf.SoundFile(str(self.desktop_path), mode="r") as desktop_file:
+                if mic_file.samplerate != SAMPLE_RATE or desktop_file.samplerate != SAMPLE_RATE:
+                    raise RuntimeError(
+                        "Unexpected sample rate "
+                        f"(mic={mic_file.samplerate}, desktop={desktop_file.samplerate})"
+                    )
+
+                with sf.SoundFile(
+                    str(self.mix_path),
+                    mode="w",
+                    samplerate=SAMPLE_RATE,
+                    channels=1,
+                    format="OGG",
+                    subtype="VORBIS",
+                ) as out_file:
+                    while True:
+                        mic_chunk = mic_file.read(BLOCK_FRAMES, dtype="float32", always_2d=False)
+                        desktop_chunk = desktop_file.read(
+                            BLOCK_FRAMES, dtype="float32", always_2d=False
+                        )
+                        mic_mono = to_mono(mic_chunk)
+                        desktop_mono = to_mono(desktop_chunk)
+                        frames = min(len(mic_mono), len(desktop_mono))
+                        if frames <= 0:
+                            break
+
+                        mix = (mic_mono[:frames] + desktop_mono[:frames]) * 0.5
+                        # Hard-clip overs to keep export stable and avoid NaN/inf propagation.
+                        mix = mix.clip(-1.0, 1.0)
+                        out_file.write(mix)
 
     @staticmethod
     def _estimate_level(samples) -> float:

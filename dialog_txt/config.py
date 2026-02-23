@@ -7,6 +7,7 @@ APP_SETTINGS_FILE = APP_ROOT / "app_settings.json"
 
 MIC_FILE_NAME = "mic.ogg"
 DESKTOP_FILE_NAME = "desktop.ogg"
+MIX_FILE_NAME = "mix.ogg"
 TRANSCRIPT_FILE_NAME = "transcript.txt"
 METADATA_FILE_NAME = "meta.json"
 

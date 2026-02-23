@@ -976,7 +976,20 @@ class App(tk.Tk):
 
         recorder = self.recorder
         self.recorder = None
-        recorder.stop()
+        try:
+            recorder.stop()
+        except Exception as exc:
+            self._set_recording_ui_state(is_recording=False)
+            self.recording_started_at = None
+            self.active_session_dir = None
+            self._set_levels_to_zero()
+            self._set_status(self._tr("status_recording_error"))
+            self._refresh_recordings()
+            self._log_event(self._tr("log_recording_error", error=exc))
+            messagebox.showerror(self._tr("title_recording_error"), str(exc))
+            if restart_level_monitor:
+                self._start_idle_level_monitor(restart=True)
+            return
 
         try:
             recorder.raise_if_failed()

@@ -11,6 +11,7 @@ Project codename/package: `dialog-txt`
 - Records separate tracks:
   - `mic.ogg` (your microphone)
   - `desktop.ogg` (system audio via loopback)
+  - `mix.ogg` (ready-to-listen mixed track)
 - Stores each session in `recordings/<timestamp>/`
 - Transcribes both tracks with `faster-whisper`
 - Merges lines into `transcript.txt` with speaker attribution and optional timestamps
@@ -82,6 +83,7 @@ recordings/
   2026-02-23_13-31-38/
     mic.ogg
     desktop.ogg
+    mix.ogg
     transcript.txt
     meta.json
 ```
@@ -110,6 +112,7 @@ recordings/
 - Пишет отдельно:
   - `mic.ogg` (ваш микрофон)
   - `desktop.ogg` (звук системы через loopback)
+  - `mix.ogg` (готовый микс для быстрого прослушивания)
 - Сохраняет сессию в `recordings/<timestamp>/`
 - Транскрибирует обе дорожки (`faster-whisper`)
 - Объединяет реплики в `transcript.txt` с подписью спикера и опциональными таймкодами
@@ -181,6 +184,7 @@ recordings/
   2026-02-23_13-31-38/
     mic.ogg
     desktop.ogg
+    mix.ogg
     transcript.txt
     meta.json
 ```
