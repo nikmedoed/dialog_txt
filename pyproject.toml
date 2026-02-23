@@ -1,0 +1,10 @@
+[project]
+name = "dialog-txt"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "soundcard>=0.4.5",
+    "soundfile>=0.13.1",
+]
