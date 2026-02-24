@@ -55,6 +55,28 @@ pip install -e .
 python main.py
 ```
 
+### Windows app-like install (simulation)
+
+From project root:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\win_install.ps1
+```
+
+What it sets up:
+
+- Start Menu shortcut (`Dialog to TXT`)
+- Desktop shortcut
+- Taskbar pinned shortcut copy
+- PowerShell command: `dialogtxt`
+- Writable app data path via `DIALOG_TXT_HOME=%LOCALAPPDATA%\DialogToTXT`
+
+Remove integration:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
+```
+
 ### Usage
 
 1. Select a microphone.
@@ -65,7 +87,7 @@ python main.py
 
 ### Settings
 
-File: `app_settings.json`
+File: `app_settings.json` (project root by default, or `%LOCALAPPDATA%\DialogToTXT\app_settings.json` in app-like mode)
 
 Main options:
 
@@ -168,6 +190,28 @@ pip install -e .
 python main.py
 ```
 
+### Windows: режим "как установленное приложение"
+
+Из корня проекта:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\win_install.ps1
+```
+
+Скрипт создаёт:
+
+- ярлык в Start Menu (`Dialog to TXT`)
+- ярлык на рабочем столе
+- копию ярлыка в Taskbar pinned
+- команду PowerShell: `dialogtxt`
+- путь данных через `DIALOG_TXT_HOME=%LOCALAPPDATA%\DialogToTXT`
+
+Удаление интеграции:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
+```
+
 ### Как пользоваться
 
 1. Выберите микрофон.
@@ -178,7 +222,7 @@ python main.py
 
 ### Настройки
 
-Файл: `app_settings.json`
+Файл: `app_settings.json` (по умолчанию в корне проекта, либо `%LOCALAPPDATA%\DialogToTXT\app_settings.json` в режиме app-like)
 
 Доступные параметры:
 

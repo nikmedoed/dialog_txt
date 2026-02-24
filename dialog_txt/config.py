@@ -1,9 +1,26 @@
+import os
 from pathlib import Path
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-RECORDINGS_ROOT = APP_ROOT / "recordings"
-APP_SETTINGS_FILE = APP_ROOT / "app_settings.json"
+
+
+def _resolve_app_data_root() -> Path:
+    # Allows launcher scripts to redirect writable app data (settings/recordings)
+    # to a user profile directory, similar to installed desktop apps.
+    explicit_home = os.environ.get("DIALOG_TXT_HOME", "").strip()
+    if not explicit_home:
+        return APP_ROOT
+
+    candidate = Path(explicit_home).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return (APP_ROOT / candidate).resolve()
+
+
+APP_DATA_ROOT = _resolve_app_data_root()
+RECORDINGS_ROOT = APP_DATA_ROOT / "recordings"
+APP_SETTINGS_FILE = APP_DATA_ROOT / "app_settings.json"
 
 MIC_FILE_NAME = "mic.ogg"
 DESKTOP_FILE_NAME = "desktop.ogg"

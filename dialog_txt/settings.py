@@ -140,4 +140,5 @@ def load_app_settings(path: Path = APP_SETTINGS_FILE) -> dict:
 
 def save_app_settings(settings: dict, path: Path = APP_SETTINGS_FILE) -> None:
     payload = _sanitize_settings(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
