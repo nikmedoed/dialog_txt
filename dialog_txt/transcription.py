@@ -8,10 +8,20 @@ import ctranslate2
 import soundfile as sf
 from faster_whisper import WhisperModel
 
-from .config import MIN_SPEAKER_GAP
+from .config import (
+    MAX_MERGED_SEGMENT_DURATION,
+    MAX_MERGED_SEGMENT_WORDS,
+    MAX_OVERLAP_FOR_MERGE,
+    MIN_AUDIO_RMS,
+    MIN_SPEAKER_GAP,
+    NO_SPEECH_PROB_THRESHOLD,
+    SHORT_SEGMENT_BRIDGE_GAP,
+    SHORT_SEGMENT_WORDS,
+    WORD_PAUSE_SPLIT_GAP,
+)
 from .models import TranscriptSegment, TranscriptionCancelled, TranscriptionOptions
 from .storage import resolve_track_paths, session_speaker_labels, transcript_path
-from .utils import format_seconds, normalize_text
+from .utils import format_seconds, normalize_text, to_mono
 
 
 class WhisperTranscriber:
@@ -157,6 +167,7 @@ class WhisperTranscriber:
             raise TranscriptionCancelled()
 
         merged = self._merge_segments(desktop_segments + mic_segments)
+        merged = self._collapse_consecutive_speaker_runs(merged)
         output_text = self._render_text(merged, options.include_timestamps)
         out_path = transcript_path(session_dir)
         out_path.write_text(output_text, encoding="utf-8")
@@ -177,35 +188,63 @@ class WhisperTranscriber:
     ) -> list[TranscriptSegment]:
         language = options.language.strip()
         language_arg = None if language.lower() in ("", "auto", "авто") else language
-        segments_iter, info = model.transcribe(
-            str(audio_path),
-            language=language_arg,
-            beam_size=options.beam_size,
-            vad_filter=options.vad_filter,
-            condition_on_previous_text=False,
-            without_timestamps=False,
-        )
+        transcribe_kwargs = {
+            "language": language_arg,
+            "beam_size": options.beam_size,
+            # Use soft post-filtering instead of hard VAD cuts to avoid clipping first words.
+            "vad_filter": False,
+            "condition_on_previous_text": False,
+            "without_timestamps": False,
+            "word_timestamps": True,
+            "no_speech_threshold": NO_SPEECH_PROB_THRESHOLD,
+        }
+
+        segments_iter, info = model.transcribe(str(audio_path), **transcribe_kwargs)
         duration = info.duration or duration_hint or 1.0
-        result: list[TranscriptSegment] = []
+        candidates: list[tuple[TranscriptSegment, float | None, float | None]] = []
 
         for seg in segments_iter:
             if cancel_event.is_set():
                 raise TranscriptionCancelled()
-            text = normalize_text(seg.text)
-            if text:
-                result.append(
-                    TranscriptSegment(
-                        start=float(seg.start),
-                        end=float(seg.end),
-                        speaker=speaker,
-                        text=text,
-                    )
-                )
+
+            no_speech_prob = self._safe_float(getattr(seg, "no_speech_prob", None))
+            avg_logprob = self._safe_float(getattr(seg, "avg_logprob", None))
+            chunks = self._split_segment_by_pauses(seg=seg, speaker=speaker)
+            for chunk in chunks:
+                candidates.append((chunk, no_speech_prob, avg_logprob))
+
             ratio = min(max(float(seg.end) / duration, 0.0), 1.0)
             progress = progress_base + ratio * progress_span
             progress_cb(f"Транскрибация: {speaker}", progress)
 
-        return result
+        if not candidates:
+            return []
+
+        measured: list[tuple[TranscriptSegment, float | None, float | None, float]] = []
+        with sf.SoundFile(str(audio_path), mode="r") as audio_file:
+            for chunk, no_speech_prob, avg_logprob in candidates:
+                rms = self._segment_rms(audio_file=audio_file, start=chunk.start, end=chunk.end)
+                measured.append((chunk, no_speech_prob, avg_logprob, rms))
+
+        rms_floor = self._dynamic_rms_floor([rms for _, _, _, rms in measured])
+        strict_filter = bool(options.vad_filter)
+
+        result: list[TranscriptSegment] = []
+        for chunk, no_speech_prob, avg_logprob, rms in measured:
+            if self._should_drop_chunk(
+                    chunk=chunk,
+                    no_speech_prob=no_speech_prob,
+                    avg_logprob=avg_logprob,
+                    rms=rms,
+                    rms_floor=rms_floor,
+                    strict_filter=strict_filter,
+            ):
+                continue
+            result.append(chunk)
+
+        if result:
+            return result
+        return [chunk for chunk, _, _ in candidates]
 
     def _merge_segments(self, segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
         ordered = sorted(segments, key=lambda s: (s.start, s.end))
@@ -216,14 +255,241 @@ class WhisperTranscriber:
                 merged.append(seg)
                 continue
             prev = merged[-1]
-            same_speaker = prev.speaker == seg.speaker
-            close_gap = seg.start - prev.end <= MIN_SPEAKER_GAP
-            if same_speaker and close_gap:
+            if self._can_merge_segments(prev, seg):
                 prev.end = max(prev.end, seg.end)
                 prev.text = self._append_text(prev.text, seg.text)
             else:
                 merged.append(seg)
         return merged
+
+    @staticmethod
+    def _safe_float(value) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _split_segment_by_pauses(self, seg, speaker: str) -> list[TranscriptSegment]:
+        words = getattr(seg, "words", None) or []
+        if not words:
+            text = normalize_text(getattr(seg, "text", ""))
+            if not text:
+                return []
+            return [
+                TranscriptSegment(
+                    start=float(seg.start),
+                    end=float(seg.end),
+                    speaker=speaker,
+                    text=text,
+                )
+            ]
+
+        seg_start = float(seg.start)
+        seg_end = float(seg.end)
+        result: list[TranscriptSegment] = []
+        current_tokens: list[str] = []
+        current_start = seg_start
+        current_end = seg_start
+
+        def flush_chunk() -> None:
+            nonlocal current_tokens, current_start, current_end
+            if not current_tokens:
+                return
+
+            text = normalize_text("".join(current_tokens))
+            if not text:
+                current_tokens = []
+                return
+
+            chunk_start = max(seg_start, current_start)
+            resolved_end = current_end
+            if resolved_end <= chunk_start:
+                resolved_end = seg_end
+            chunk_end = min(seg_end, resolved_end)
+            if chunk_end < chunk_start:
+                chunk_end = chunk_start
+
+            result.append(
+                TranscriptSegment(
+                    start=chunk_start,
+                    end=chunk_end,
+                    speaker=speaker,
+                    text=text,
+                )
+            )
+            current_tokens = []
+
+        for word in words:
+            token = str(getattr(word, "word", "") or "")
+            if not token:
+                continue
+
+            word_start = self._safe_float(getattr(word, "start", None))
+            word_end = self._safe_float(getattr(word, "end", None))
+
+            if current_tokens and word_start is not None:
+                gap = word_start - current_end
+                if gap >= WORD_PAUSE_SPLIT_GAP:
+                    flush_chunk()
+                    current_start = word_start
+                    current_end = word_start
+
+            if not current_tokens:
+                if word_start is not None:
+                    current_start = word_start
+                else:
+                    current_start = max(seg_start, current_start)
+
+            current_tokens.append(token)
+            if word_end is not None:
+                current_end = word_end
+            elif word_start is not None:
+                current_end = word_start
+
+        flush_chunk()
+        if result:
+            return result
+
+        text = normalize_text(getattr(seg, "text", ""))
+        if not text:
+            return []
+        return [
+            TranscriptSegment(
+                start=seg_start,
+                end=seg_end,
+                speaker=speaker,
+                text=text,
+            )
+        ]
+
+    def _dynamic_rms_floor(self, rms_values: list[float]) -> float:
+        usable = sorted(value for value in rms_values if value > 0.0)
+        if not usable:
+            return MIN_AUDIO_RMS
+        median = usable[len(usable) // 2]
+        adaptive = median * 0.18
+        return max(MIN_AUDIO_RMS, adaptive)
+
+    def _should_drop_chunk(
+        self,
+        chunk: TranscriptSegment,
+        no_speech_prob: float | None,
+        avg_logprob: float | None,
+        rms: float,
+        rms_floor: float,
+        strict_filter: bool,
+    ) -> bool:
+        if rms >= rms_floor:
+            return False
+
+        duration = max(0.0, chunk.end - chunk.start)
+        word_count = self._word_count(chunk.text)
+        no_speech = no_speech_prob if no_speech_prob is not None else 0.0
+
+        # Strict mode is used when "VAD filter" is enabled in UI:
+        # remove more low-energy micro-phrases, but keep regular speech intact.
+        if strict_filter:
+            if no_speech >= 0.45 and duration <= 8.0:
+                return True
+            if duration <= 1.6 and word_count <= 5:
+                return True
+            if avg_logprob is not None and avg_logprob <= -1.0 and duration <= 5.0:
+                return True
+            return False
+
+        if no_speech >= NO_SPEECH_PROB_THRESHOLD and duration <= 3.0:
+            return True
+        if duration <= 1.0 and word_count <= 3 and no_speech >= 0.35:
+            return True
+        if avg_logprob is not None and avg_logprob <= -1.2 and duration <= 2.0:
+            return True
+
+        return False
+
+    @staticmethod
+    def _segment_rms(audio_file: sf.SoundFile, start: float, end: float) -> float:
+        sample_rate = int(audio_file.samplerate)
+        start_frame = max(0, int(start * sample_rate))
+        end_frame = min(audio_file.frames, int(end * sample_rate))
+        frame_count = end_frame - start_frame
+        if frame_count <= 0:
+            return 0.0
+
+        audio_file.seek(start_frame)
+        samples = audio_file.read(frame_count, dtype="float32", always_2d=False)
+        if len(samples) == 0:
+            return 0.0
+
+        mono = to_mono(samples)
+        if len(mono) == 0:
+            return 0.0
+
+        squared = mono * mono
+        return float(squared.mean() ** 0.5)
+
+    def _can_merge_segments(self, left: TranscriptSegment, right: TranscriptSegment) -> bool:
+        if left.speaker != right.speaker:
+            return False
+
+        gap = right.start - left.end
+        if gap > MIN_SPEAKER_GAP:
+            # Preserve conversational flow: tiny same-speaker tails are usually one turn.
+            if gap > SHORT_SEGMENT_BRIDGE_GAP or self._word_count(right.text) > SHORT_SEGMENT_WORDS:
+                return False
+        if gap < -MAX_OVERLAP_FOR_MERGE:
+            return False
+
+        merged_duration = max(left.end, right.end) - min(left.start, right.start)
+        if merged_duration > MAX_MERGED_SEGMENT_DURATION:
+            return False
+
+        merged_word_count = self._word_count(left.text) + self._word_count(right.text)
+        if merged_word_count > MAX_MERGED_SEGMENT_WORDS:
+            return False
+
+        return True
+
+    @staticmethod
+    def _word_count(text: str) -> int:
+        return len(text.split())
+
+    def _collapse_consecutive_speaker_runs(
+        self, segments: list[TranscriptSegment]
+    ) -> list[TranscriptSegment]:
+        collapsed: list[TranscriptSegment] = []
+        for seg in segments:
+            text = normalize_text(seg.text)
+            if not text:
+                continue
+
+            if not collapsed:
+                collapsed.append(
+                    TranscriptSegment(
+                        start=seg.start,
+                        end=seg.end,
+                        speaker=seg.speaker,
+                        text=text,
+                    )
+                )
+                continue
+
+            prev = collapsed[-1]
+            if prev.speaker == seg.speaker:
+                prev.end = max(prev.end, seg.end)
+                prev.text = self._append_text(prev.text, text)
+                continue
+
+            collapsed.append(
+                TranscriptSegment(
+                    start=seg.start,
+                    end=seg.end,
+                    speaker=seg.speaker,
+                    text=text,
+                )
+            )
+        return collapsed
 
     @staticmethod
     def _append_text(left: str, right: str) -> str:
