@@ -5,7 +5,8 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .localization import UI_LANGUAGE_CODES
-from .settings import ALLOWED_COMPUTE_TYPES, ALLOWED_MODELS
+from .settings import ALLOWED_COMPUTE_TYPES
+from .transcription_backends import ALLOWED_DEVICES, ALLOWED_TRANSCRIPTION_LIBRARIES
 
 
 def build_ui(app) -> None:
@@ -95,81 +96,102 @@ def build_ui(app) -> None:
     app.transcribe_box.pack(fill=tk.X, pady=(6, 0))
     app.transcribe_box.columnconfigure(1, weight=1)
 
-    transcribe_flags = ttk.Frame(app.transcribe_box)
-    transcribe_flags.grid(row=0, column=0, columnspan=4, sticky=tk.W)
+    primary_row = ttk.Frame(app.transcribe_box)
+    primary_row.grid(row=0, column=0, columnspan=4, sticky=tk.EW)
+    primary_row.columnconfigure(2, weight=1)
+    primary_row.columnconfigure(4, weight=1)
     app.auto_transcribe_check = ttk.Checkbutton(
-        transcribe_flags,
+        primary_row,
         text=app._tr("auto_transcribe_after_record"),
         variable=app.auto_transcribe_var,
     )
-    app.auto_transcribe_check.grid(row=0, column=0, sticky=tk.W)
+    app.auto_transcribe_check.grid(row=0, column=0, sticky=tk.W, padx=(0, 8))
+    app.self_label_label = ttk.Label(primary_row, text=app._tr("label_speaker_mic"))
+    app.self_label_label.grid(row=0, column=1, sticky=tk.W, padx=(0, 4))
+    app.self_label_entry = ttk.Entry(primary_row, textvariable=app.self_label_var)
+    app.self_label_entry.grid(row=0, column=2, sticky=tk.EW, padx=(0, 8))
+    app.other_label_label = ttk.Label(primary_row, text=app._tr("label_speaker_desktop"))
+    app.other_label_label.grid(row=0, column=3, sticky=tk.W, padx=(0, 4))
+    app.other_label_entry = ttk.Entry(primary_row, textvariable=app.other_label_var)
+    app.other_label_entry.grid(row=0, column=4, sticky=tk.EW)
 
-    speakers_row = ttk.Frame(app.transcribe_box)
-    speakers_row.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(4, 0))
-    speakers_row.columnconfigure(1, weight=1)
-    speakers_row.columnconfigure(3, weight=1)
-    app.self_label_label = ttk.Label(speakers_row, text=app._tr("label_speaker_mic"))
-    app.self_label_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-    app.self_label_entry = ttk.Entry(speakers_row, textvariable=app.self_label_var)
-    app.self_label_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 8))
-    app.other_label_label = ttk.Label(speakers_row, text=app._tr("label_speaker_desktop"))
-    app.other_label_label.grid(row=0, column=2, sticky=tk.W, padx=(0, 4))
-    app.other_label_entry = ttk.Entry(speakers_row, textvariable=app.other_label_var)
-    app.other_label_entry.grid(row=0, column=3, sticky=tk.EW, padx=(0, 8))
-    app.include_timestamps_check = ttk.Checkbutton(
-        speakers_row,
-        text=app._tr("include_timestamps"),
-        variable=app.include_timestamps_var,
-    )
-    app.include_timestamps_check.grid(row=0, column=4, sticky=tk.W)
-
-    whisper_row = ttk.Frame(app.transcribe_box)
-    whisper_row.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(4, 0))
-    app.model_label = ttk.Label(whisper_row, text=app._tr("label_model"))
-    app.model_label.grid(row=0, column=0, sticky=tk.W)
-    app.model_combo = ttk.Combobox(
-        whisper_row,
+    backend_row = ttk.Frame(app.transcribe_box)
+    backend_row.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(4, 0))
+    app.library_label = ttk.Label(backend_row, text=app._tr("label_library"))
+    app.library_label.grid(row=0, column=0, sticky=tk.W)
+    app.library_combo = ttk.Combobox(
+        backend_row,
         state="readonly",
-        width=10,
-        values=list(ALLOWED_MODELS),
+        width=14,
+        values=list(ALLOWED_TRANSCRIPTION_LIBRARIES),
+        textvariable=app.transcription_library_var,
+    )
+    app.library_combo.grid(row=0, column=1, sticky=tk.W, padx=(3, 8))
+    app.library_combo.bind("<<ComboboxSelected>>", app._on_transcription_library_selected)
+    app.model_label = ttk.Label(backend_row, text=app._tr("label_model"))
+    app.model_label.grid(row=0, column=2, sticky=tk.W)
+    app.model_combo = ttk.Combobox(
+        backend_row,
+        state="readonly",
+        width=14,
+        values=[],
         textvariable=app.model_var,
     )
-    app.model_combo.grid(row=0, column=1, sticky=tk.W, padx=(3, 8))
-    app.language_label = ttk.Label(whisper_row, text=app._tr("label_language"))
-    app.language_label.grid(row=0, column=2, sticky=tk.W)
-    app.language_combo = ttk.Combobox(
-        whisper_row,
+    app.model_combo.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
+    app.device_label = ttk.Label(backend_row, text=app._tr("label_device"))
+    app.device_label.grid(row=0, column=4, sticky=tk.W)
+    app.device_combo = ttk.Combobox(
+        backend_row,
+        state="readonly",
         width=5,
-        values=["ru", "en", "auto"],
-        textvariable=app.language_var,
+        values=list(ALLOWED_DEVICES),
+        textvariable=app.device_var,
     )
-    app.language_combo.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
-    app.beam_label = ttk.Label(whisper_row, text=app._tr("label_beam"))
-    app.beam_label.grid(row=0, column=4, sticky=tk.W)
-    app.beam_spinbox = ttk.Spinbox(
-        whisper_row,
-        from_=1,
-        to=10,
-        width=4,
-        textvariable=app.beam_size_var,
-    )
-    app.beam_spinbox.grid(row=0, column=5, sticky=tk.W, padx=(3, 8))
-    app.compute_label = ttk.Label(whisper_row, text=app._tr("label_compute"))
+    app.device_combo.grid(row=0, column=5, sticky=tk.W, padx=(3, 8))
+    app.compute_label = ttk.Label(backend_row, text=app._tr("label_compute"))
     app.compute_label.grid(row=0, column=6, sticky=tk.W)
     app.compute_type_combo = ttk.Combobox(
-        whisper_row,
+        backend_row,
         state="readonly",
         width=8,
         values=list(ALLOWED_COMPUTE_TYPES),
         textvariable=app.compute_type_var,
     )
-    app.compute_type_combo.grid(row=0, column=7, sticky=tk.W, padx=(3, 8))
+    app.compute_type_combo.grid(row=0, column=7, sticky=tk.W)
+
+    options_row = ttk.Frame(app.transcribe_box)
+    options_row.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(4, 0))
     app.vad_filter_check = ttk.Checkbutton(
-        whisper_row,
+        options_row,
         text=app._tr("vad_filter"),
         variable=app.vad_filter_var,
     )
-    app.vad_filter_check.grid(row=0, column=8, sticky=tk.W)
+    app.vad_filter_check.grid(row=0, column=0, sticky=tk.W, padx=(0, 8))
+    app.include_timestamps_check = ttk.Checkbutton(
+        options_row,
+        text=app._tr("include_timestamps"),
+        variable=app.include_timestamps_var,
+    )
+    app.include_timestamps_check.grid(row=0, column=1, sticky=tk.W, padx=(0, 8))
+    app.language_label = ttk.Label(options_row, text=app._tr("label_language"))
+    app.language_label.grid(row=0, column=2, sticky=tk.W)
+    app.language_combo = ttk.Combobox(
+        options_row,
+        width=5,
+        values=["ru", "en", "auto"],
+        textvariable=app.language_var,
+    )
+    app.language_combo.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
+    app.beam_label = ttk.Label(options_row, text=app._tr("label_beam"))
+    app.beam_label.grid(row=0, column=4, sticky=tk.W)
+    app.beam_spinbox = ttk.Spinbox(
+        options_row,
+        from_=1,
+        to=10,
+        width=4,
+        textvariable=app.beam_size_var,
+    )
+    app.beam_spinbox.grid(row=0, column=5, sticky=tk.W)
 
     app.progress_label_title = ttk.Label(app.transcribe_box, text=app._tr("label_progress"))
     app.progress_label_title.grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
@@ -250,6 +272,8 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.self_label_label.configure(text=app._tr("label_speaker_mic"))
     app.other_label_label.configure(text=app._tr("label_speaker_desktop"))
     app.include_timestamps_check.configure(text=app._tr("include_timestamps"))
+    app.library_label.configure(text=app._tr("label_library"))
+    app.device_label.configure(text=app._tr("label_device"))
     app.model_label.configure(text=app._tr("label_model"))
     app.language_label.configure(text=app._tr("label_language"))
     app.beam_label.configure(text=app._tr("label_beam"))
@@ -309,6 +333,8 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     app.self_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.other_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.auto_transcribe_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+    app.library_combo.configure(state=tk.DISABLED if is_running else "readonly")
+    app.device_combo.configure(state=tk.DISABLED if is_running else "readonly")
     app.model_combo.configure(state=tk.DISABLED if is_running else "readonly")
     app.language_combo.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.beam_spinbox.configure(state=tk.DISABLED if is_running else tk.NORMAL)
@@ -322,6 +348,8 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     app.delete_selected_button.configure(
         state=tk.DISABLED if is_running or not session else tk.NORMAL
     )
+    if not is_running:
+        app._sync_transcription_settings_ui()
 
 
 def update_status_line(app) -> None:

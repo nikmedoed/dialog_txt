@@ -37,6 +37,8 @@ class TranscriptionMixin:
                 self._tr("msg_session_missing_tracks"),
             )
             return
+        if not self._ensure_transcription_library_ready(interactive=True):
+            return
 
         self.cancel_transcription_event.clear()
         self.progress.configure(value=0)
@@ -53,6 +55,8 @@ class TranscriptionMixin:
                 lang=options.language,
                 beam=options.beam_size,
                 vad=self._tr("flag_on") if options.vad_filter else self._tr("flag_off"),
+                library=options.transcription_library,
+                device=options.device,
                 compute=options.compute_type,
             )
         )

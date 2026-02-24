@@ -19,7 +19,9 @@ class TranscriptSegment:
 
 @dataclass(frozen=True)
 class TranscriptionOptions:
+    transcription_library: str
     model_name: str
+    device: str
     language: str
     beam_size: int
     vad_filter: bool

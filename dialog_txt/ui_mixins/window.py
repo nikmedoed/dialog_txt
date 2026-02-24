@@ -104,8 +104,10 @@ class WindowMixin:
             sm_cxsmicon = 49
             sm_cysmicon = 50
 
-            big_w = max(32, int(user32.GetSystemMetrics(sm_cxicon) or 32))
-            big_h = max(32, int(user32.GetSystemMetrics(sm_cyicon) or 32))
+            # Request at least 64px for the taskbar icon to keep it sharp on HiDPI,
+            # while still allowing Windows to pick the closest .ico resource.
+            big_w = max(64, int(user32.GetSystemMetrics(sm_cxicon) or 32))
+            big_h = max(64, int(user32.GetSystemMetrics(sm_cyicon) or 32))
             small_w = max(16, int(user32.GetSystemMetrics(sm_cxsmicon) or 16))
             small_h = max(16, int(user32.GetSystemMetrics(sm_cysmicon) or 16))
 
@@ -132,6 +134,8 @@ class WindowMixin:
                     user32.SendMessageW(hwnd, wm_seticon, ctypes.c_void_p(icon_big), hicon_big)
                 if set_class_icon is not None:
                     set_class_icon(root_hwnd, gclp_hicon, hicon_big)
+                    if hwnd.value != root_hwnd.value:
+                        set_class_icon(hwnd, gclp_hicon, hicon_big)
                 self._win32_icon_handles.append(int(hicon_big))
             if hicon_small:
                 user32.SendMessageW(root_hwnd, wm_seticon, ctypes.c_void_p(icon_small), hicon_small)
@@ -139,6 +143,8 @@ class WindowMixin:
                     user32.SendMessageW(hwnd, wm_seticon, ctypes.c_void_p(icon_small), hicon_small)
                 if set_class_icon is not None:
                     set_class_icon(root_hwnd, gclp_hiconsm, hicon_small)
+                    if hwnd.value != root_hwnd.value:
+                        set_class_icon(hwnd, gclp_hiconsm, hicon_small)
                 self._win32_icon_handles.append(int(hicon_small))
         except Exception:
             return

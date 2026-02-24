@@ -4,9 +4,18 @@ import json
 from pathlib import Path
 
 from .config import APP_SETTINGS_FILE, DEFAULT_OTHER_LABEL, DEFAULT_SELF_LABEL
+from .transcription_backends import (
+    ALLOWED_DEVICES,
+    DEFAULT_DEVICE,
+    DEFAULT_MODEL_BY_LIBRARY,
+    DEFAULT_TRANSCRIPTION_LIBRARY,
+    default_model_for_library,
+    normalize_transcription_library,
+    transcription_models_for_library,
+)
 
 
-DEFAULT_MODEL = "large-v3"
+DEFAULT_MODEL = DEFAULT_MODEL_BY_LIBRARY[DEFAULT_TRANSCRIPTION_LIBRARY]
 DEFAULT_LANGUAGE = "ru"
 DEFAULT_BEAM_SIZE = 5
 DEFAULT_VAD_FILTER = True
@@ -15,15 +24,6 @@ DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD = True
 DEFAULT_INCLUDE_TIMESTAMPS = False
 DEFAULT_UI_LANGUAGE = "ru"
 
-ALLOWED_MODELS = (
-    "tiny",
-    "base",
-    "small",
-    "medium",
-    "large-v2",
-    "large-v3",
-    "distil-large-v3",
-)
 ALLOWED_COMPUTE_TYPES = ("float16", "int8_float16", "int8")
 ALLOWED_UI_LANGUAGES = ("ru", "en")
 
@@ -34,7 +34,9 @@ def _default_settings() -> dict:
         "speaker_self": DEFAULT_SELF_LABEL,
         "speaker_other": DEFAULT_OTHER_LABEL,
         "auto_transcribe_after_record": DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD,
+        "transcription_library": DEFAULT_TRANSCRIPTION_LIBRARY,
         "whisper_model": DEFAULT_MODEL,
+        "whisper_device": DEFAULT_DEVICE,
         "whisper_language": DEFAULT_LANGUAGE,
         "whisper_beam_size": DEFAULT_BEAM_SIZE,
         "whisper_vad_filter": DEFAULT_VAD_FILTER,
@@ -71,12 +73,21 @@ def _normalize_int(value, fallback: int, minimum: int, maximum: int) -> int:
 
 def _sanitize_settings(raw: dict | None) -> dict:
     payload = raw or {}
-    model = str(payload.get("whisper_model", DEFAULT_MODEL)).strip() or DEFAULT_MODEL
-    if model not in ALLOWED_MODELS:
-        model = DEFAULT_MODEL
+    transcription_library = normalize_transcription_library(
+        payload.get("transcription_library", DEFAULT_TRANSCRIPTION_LIBRARY)
+    )
+    allowed_models = transcription_models_for_library(transcription_library)
+    default_model = default_model_for_library(transcription_library, allowed_models)
+    model = str(payload.get("whisper_model", default_model)).strip() or default_model
+    if model not in allowed_models:
+        model = default_model
 
     language = " ".join(str(payload.get("whisper_language", DEFAULT_LANGUAGE)).split())
     language = language or DEFAULT_LANGUAGE
+
+    device = str(payload.get("whisper_device", DEFAULT_DEVICE)).strip().lower()
+    if device not in ALLOWED_DEVICES:
+        device = DEFAULT_DEVICE
 
     compute_type = str(payload.get("whisper_compute_type", DEFAULT_COMPUTE_TYPE)).strip()
     if compute_type not in ALLOWED_COMPUTE_TYPES:
@@ -94,7 +105,9 @@ def _sanitize_settings(raw: dict | None) -> dict:
             payload.get("auto_transcribe_after_record", DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD),
             DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD,
         ),
+        "transcription_library": transcription_library,
         "whisper_model": model,
+        "whisper_device": device,
         "whisper_language": language,
         "whisper_beam_size": _normalize_int(
             payload.get("whisper_beam_size", DEFAULT_BEAM_SIZE),

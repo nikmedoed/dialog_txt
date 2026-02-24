@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import importlib
 import threading
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
-import ctranslate2
 import soundfile as sf
-from faster_whisper import WhisperModel
 
 from .config import (
     MAX_MERGED_SEGMENT_DURATION,
@@ -22,6 +21,11 @@ from .config import (
 from .localization import tr
 from .models import TranscriptSegment, TranscriptionCancelled, TranscriptionOptions
 from .storage import resolve_track_paths, session_speaker_labels, transcript_path
+from .transcription_backends import (
+    TRANSCRIPTION_LIBRARY_FASTER,
+    TRANSCRIPTION_LIBRARY_WHISPER,
+    normalize_transcription_library,
+)
 from .utils import format_seconds, normalize_text, to_mono
 
 
@@ -38,32 +42,76 @@ class WhisperTranscriber:
     )
 
     def __init__(self):
-        self._models: dict[tuple[str, str, str], WhisperModel] = {}
+        self._models: dict[tuple[str, str, str, str], object] = {}
         self._model_lock = threading.Lock()
-        self._cuda_available = self._detect_cuda_availability()
 
     @staticmethod
-    def _detect_cuda_availability() -> bool:
+    def _detect_faster_cuda_availability(ctranslate2_module) -> bool:
         try:
-            return ctranslate2.get_cuda_device_count() > 0
+            return ctranslate2_module.get_cuda_device_count() > 0
         except Exception:
             return False
 
     @staticmethod
-    def _supported_compute_types(device: str) -> set[str]:
+    def _detect_whisper_cuda_availability() -> bool:
         try:
-            return set(ctranslate2.get_supported_compute_types(device))
+            torch = importlib.import_module("torch")
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _supported_compute_types(ctranslate2_module, device: str) -> set[str]:
+        try:
+            return set(ctranslate2_module.get_supported_compute_types(device))
         except Exception:
             return set()
 
-    def _model_load_plan(self, requested_compute_type: str) -> list[tuple[str, str]]:
-        devices = ["cuda", "cpu"] if self._cuda_available else ["cpu"]
+    @staticmethod
+    def _resolve_device_order(
+        requested_device: str,
+        cuda_available: bool,
+        ui_language: str,
+    ) -> list[str]:
+        normalized = str(requested_device or "auto").strip().lower()
+        if normalized == "gpu":
+            if not cuda_available:
+                raise RuntimeError(tr(ui_language, "transcriber_err_gpu_unavailable"))
+            return ["cuda"]
+        if normalized == "cpu":
+            return ["cpu"]
+        return ["cuda", "cpu"] if cuda_available else ["cpu"]
+
+    @staticmethod
+    def _resolve_single_device(
+        requested_device: str,
+        cuda_available: bool,
+        ui_language: str,
+    ) -> str:
+        normalized = str(requested_device or "auto").strip().lower()
+        if normalized == "gpu":
+            if not cuda_available:
+                raise RuntimeError(tr(ui_language, "transcriber_err_gpu_unavailable"))
+            return "cuda"
+        if normalized == "cpu":
+            return "cpu"
+        return "cuda" if cuda_available else "cpu"
+
+    def _model_load_plan(
+        self,
+        requested_compute_type: str,
+        requested_device: str,
+        ctranslate2_module,
+        ui_language: str,
+    ) -> list[tuple[str, str]]:
+        cuda_available = self._detect_faster_cuda_availability(ctranslate2_module)
+        devices = self._resolve_device_order(requested_device, cuda_available, ui_language)
         requested = requested_compute_type.strip()
         plan: list[tuple[str, str]] = []
         seen: set[tuple[str, str]] = set()
 
         for device in devices:
-            supported = self._supported_compute_types(device)
+            supported = self._supported_compute_types(ctranslate2_module, device)
             if not supported:
                 continue
 
@@ -84,23 +132,42 @@ class WhisperTranscriber:
                 plan.append(key)
         return plan
 
-    def _load_model(
+    def _load_faster_model(
         self,
         options: TranscriptionOptions,
         progress_cb: Callable[[str, float], None],
         ui_language: str,
-    ) -> WhisperModel:
-        load_plan = self._model_load_plan(options.compute_type)
+    ) -> tuple[object, str, str]:
+        try:
+            ctranslate2_module = importlib.import_module("ctranslate2")
+            faster_whisper = importlib.import_module("faster_whisper")
+            whisper_model_cls = faster_whisper.WhisperModel
+        except Exception as exc:
+            raise RuntimeError(
+                tr(
+                    ui_language,
+                    "transcriber_err_model_load",
+                    model=options.model_name,
+                    error=str(exc),
+                )
+            ) from exc
+
+        load_plan = self._model_load_plan(
+            options.compute_type,
+            options.device,
+            ctranslate2_module,
+            ui_language,
+        )
         if not load_plan:
             raise RuntimeError(tr(ui_language, "transcriber_err_compute_types"))
 
         errors: list[str] = []
         for device, compute_type in load_plan:
-            key = (options.model_name, device, compute_type)
+            key = (TRANSCRIPTION_LIBRARY_FASTER, options.model_name, device, compute_type)
             with self._model_lock:
                 model = self._models.get(key)
                 if model is not None:
-                    return model
+                    return model, device, compute_type
 
                 progress_cb(
                     tr(
@@ -113,7 +180,7 @@ class WhisperTranscriber:
                     1.0,
                 )
                 try:
-                    model = WhisperModel(
+                    model = whisper_model_cls(
                         options.model_name,
                         device=device,
                         compute_type=compute_type,
@@ -122,7 +189,7 @@ class WhisperTranscriber:
                     errors.append(f"{device}/{compute_type}: {exc}")
                     continue
                 self._models[key] = model
-                return model
+                return model, device, compute_type
 
         joined = "; ".join(errors) if errors else "unknown initialization error"
         raise RuntimeError(
@@ -132,6 +199,81 @@ class WhisperTranscriber:
                 model=options.model_name,
                 error=joined,
             )
+        )
+
+    def _load_openai_whisper_model(
+        self,
+        options: TranscriptionOptions,
+        progress_cb: Callable[[str, float], None],
+        ui_language: str,
+    ) -> tuple[object, str, str]:
+        try:
+            whisper_module = importlib.import_module("whisper")
+        except Exception as exc:
+            raise RuntimeError(
+                tr(
+                    ui_language,
+                    "transcriber_err_model_load",
+                    model=options.model_name,
+                    error=str(exc),
+                )
+            ) from exc
+
+        cuda_available = self._detect_whisper_cuda_availability()
+        device = self._resolve_single_device(options.device, cuda_available, ui_language)
+        key = (TRANSCRIPTION_LIBRARY_WHISPER, options.model_name, device, "")
+        with self._model_lock:
+            model = self._models.get(key)
+            if model is not None:
+                return model, device, "torch"
+
+            progress_cb(
+                tr(
+                    ui_language,
+                    "transcriber_status_model_loading",
+                    model=options.model_name,
+                    compute="torch",
+                    device=device.upper(),
+                ),
+                1.0,
+            )
+            try:
+                model = whisper_module.load_model(options.model_name, device=device)
+            except Exception as exc:
+                raise RuntimeError(
+                    tr(
+                        ui_language,
+                        "transcriber_err_model_load",
+                        model=options.model_name,
+                        error=str(exc),
+                    )
+                ) from exc
+            self._models[key] = model
+            return model, device, "torch"
+
+    def _load_model(
+        self,
+        options: TranscriptionOptions,
+        progress_cb: Callable[[str, float], None],
+        ui_language: str,
+    ) -> tuple[object, str, str, str]:
+        library = normalize_transcription_library(options.transcription_library)
+        if library == TRANSCRIPTION_LIBRARY_FASTER:
+            model, runtime_device, runtime_compute = self._load_faster_model(
+                options,
+                progress_cb,
+                ui_language,
+            )
+            return model, library, runtime_device, runtime_compute
+        if library == TRANSCRIPTION_LIBRARY_WHISPER:
+            model, runtime_device, runtime_compute = self._load_openai_whisper_model(
+                options,
+                progress_cb,
+                ui_language,
+            )
+            return model, library, runtime_device, runtime_compute
+        raise RuntimeError(
+            tr(ui_language, "transcriber_err_unsupported_library", library=library)
         )
 
     def transcribe_session(
@@ -147,7 +289,11 @@ class WhisperTranscriber:
             raise FileNotFoundError(tr(ui_language, "transcriber_err_missing_tracks"))
         self_label, other_label = session_speaker_labels(session_dir)
 
-        model = self._load_model(options, progress_cb, ui_language=ui_language)
+        model, library, runtime_device, _runtime_compute = self._load_model(
+            options,
+            progress_cb,
+            ui_language=ui_language,
+        )
 
         mic_duration = sf.info(str(mic_path)).duration or 0.0
         desktop_duration = sf.info(str(desktop_path)).duration or 0.0
@@ -155,6 +301,8 @@ class WhisperTranscriber:
         progress_cb(tr(ui_language, "transcriber_status_track", speaker=other_label), 5.0)
         desktop_segments = self._transcribe_track(
             model=model,
+            transcription_library=library,
+            runtime_device=runtime_device,
             audio_path=desktop_path,
             speaker=other_label,
             duration_hint=desktop_duration,
@@ -172,6 +320,8 @@ class WhisperTranscriber:
         progress_cb(tr(ui_language, "transcriber_status_track", speaker=self_label), 50.0)
         mic_segments = self._transcribe_track(
             model=model,
+            transcription_library=library,
+            runtime_device=runtime_device,
             audio_path=mic_path,
             speaker=self_label,
             duration_hint=mic_duration,
@@ -194,9 +344,60 @@ class WhisperTranscriber:
         progress_cb(tr(ui_language, "transcriber_status_done"), 100.0)
         return out_path
 
+    def _transcribe_segments(
+        self,
+        model,
+        transcription_library: str,
+        runtime_device: str,
+        audio_path: Path,
+        options: TranscriptionOptions,
+    ) -> tuple[Iterable, float]:
+        language = options.language.strip()
+        language_arg = None if language.lower() in ("", "auto", "авто") else language
+
+        if transcription_library == TRANSCRIPTION_LIBRARY_FASTER:
+            transcribe_kwargs = {
+                "language": language_arg,
+                "beam_size": options.beam_size,
+                # Use soft post-filtering instead of hard VAD cuts to avoid clipping first words.
+                "vad_filter": False,
+                "condition_on_previous_text": False,
+                "without_timestamps": False,
+                "word_timestamps": True,
+                "no_speech_threshold": NO_SPEECH_PROB_THRESHOLD,
+            }
+            segments_iter, info = model.transcribe(str(audio_path), **transcribe_kwargs)
+            duration = self._safe_float(getattr(info, "duration", None)) or 0.0
+            return segments_iter, duration
+
+        if transcription_library == TRANSCRIPTION_LIBRARY_WHISPER:
+            transcribe_kwargs = {
+                "beam_size": options.beam_size,
+                "condition_on_previous_text": False,
+                "word_timestamps": True,
+                "fp16": runtime_device == "cuda",
+                "verbose": False,
+                "no_speech_threshold": NO_SPEECH_PROB_THRESHOLD,
+            }
+            if language_arg:
+                transcribe_kwargs["language"] = language_arg
+            result = model.transcribe(str(audio_path), **transcribe_kwargs)
+            segments = result.get("segments") if isinstance(result, dict) else []
+            segments = segments if isinstance(segments, list) else []
+            duration = 0.0
+            for segment in segments:
+                end = self._safe_float(self._segment_field(segment, "end"))
+                if end is not None and end > duration:
+                    duration = end
+            return segments, duration
+
+        raise RuntimeError(f"Unsupported transcription library: {transcription_library}")
+
     def _transcribe_track(
         self,
-        model: WhisperModel,
+        model,
+        transcription_library: str,
+        runtime_device: str,
         audio_path: Path,
         speaker: str,
         duration_hint: float,
@@ -207,34 +408,28 @@ class WhisperTranscriber:
         cancel_event: threading.Event,
         ui_language: str,
     ) -> list[TranscriptSegment]:
-        language = options.language.strip()
-        language_arg = None if language.lower() in ("", "auto", "авто") else language
-        transcribe_kwargs = {
-            "language": language_arg,
-            "beam_size": options.beam_size,
-            # Use soft post-filtering instead of hard VAD cuts to avoid clipping first words.
-            "vad_filter": False,
-            "condition_on_previous_text": False,
-            "without_timestamps": False,
-            "word_timestamps": True,
-            "no_speech_threshold": NO_SPEECH_PROB_THRESHOLD,
-        }
-
-        segments_iter, info = model.transcribe(str(audio_path), **transcribe_kwargs)
-        duration = info.duration or duration_hint or 1.0
+        segments, model_duration = self._transcribe_segments(
+            model=model,
+            transcription_library=transcription_library,
+            runtime_device=runtime_device,
+            audio_path=audio_path,
+            options=options,
+        )
+        duration = model_duration or duration_hint or 1.0
         candidates: list[tuple[TranscriptSegment, float | None, float | None]] = []
 
-        for seg in segments_iter:
+        for seg in segments:
             if cancel_event.is_set():
                 raise TranscriptionCancelled()
 
-            no_speech_prob = self._safe_float(getattr(seg, "no_speech_prob", None))
-            avg_logprob = self._safe_float(getattr(seg, "avg_logprob", None))
+            no_speech_prob = self._safe_float(self._segment_field(seg, "no_speech_prob"))
+            avg_logprob = self._safe_float(self._segment_field(seg, "avg_logprob"))
             chunks = self._split_segment_by_pauses(seg=seg, speaker=speaker)
             for chunk in chunks:
                 candidates.append((chunk, no_speech_prob, avg_logprob))
 
-            ratio = min(max(float(seg.end) / duration, 0.0), 1.0)
+            seg_end = self._safe_float(self._segment_field(seg, "end")) or 0.0
+            ratio = min(max(seg_end / duration, 0.0), 1.0)
             progress = progress_base + ratio * progress_span
             progress_cb(
                 tr(ui_language, "transcriber_status_speaker_progress", speaker=speaker),
@@ -256,12 +451,12 @@ class WhisperTranscriber:
         result: list[TranscriptSegment] = []
         for chunk, no_speech_prob, avg_logprob, rms in measured:
             if self._should_drop_chunk(
-                    chunk=chunk,
-                    no_speech_prob=no_speech_prob,
-                    avg_logprob=avg_logprob,
-                    rms=rms,
-                    rms_floor=rms_floor,
-                    strict_filter=strict_filter,
+                chunk=chunk,
+                no_speech_prob=no_speech_prob,
+                avg_logprob=avg_logprob,
+                rms=rms,
+                rms_floor=rms_floor,
+                strict_filter=strict_filter,
             ):
                 continue
             result.append(chunk)
@@ -295,23 +490,37 @@ class WhisperTranscriber:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _segment_field(segment, field: str, default=None):
+        if isinstance(segment, dict):
+            return segment.get(field, default)
+        return getattr(segment, field, default)
+
+    @staticmethod
+    def _word_field(word, field: str, default=None):
+        if isinstance(word, dict):
+            return word.get(field, default)
+        return getattr(word, field, default)
+
     def _split_segment_by_pauses(self, seg, speaker: str) -> list[TranscriptSegment]:
-        words = getattr(seg, "words", None) or []
+        words = self._segment_field(seg, "words") or []
         if not words:
-            text = normalize_text(getattr(seg, "text", ""))
+            text = normalize_text(str(self._segment_field(seg, "text", "") or ""))
             if not text:
                 return []
+            seg_start = self._safe_float(self._segment_field(seg, "start")) or 0.0
+            seg_end = self._safe_float(self._segment_field(seg, "end")) or seg_start
             return [
                 TranscriptSegment(
-                    start=float(seg.start),
-                    end=float(seg.end),
+                    start=seg_start,
+                    end=seg_end,
                     speaker=speaker,
                     text=text,
                 )
             ]
 
-        seg_start = float(seg.start)
-        seg_end = float(seg.end)
+        seg_start = self._safe_float(self._segment_field(seg, "start")) or 0.0
+        seg_end = self._safe_float(self._segment_field(seg, "end")) or seg_start
         result: list[TranscriptSegment] = []
         current_tokens: list[str] = []
         current_start = seg_start
@@ -346,12 +555,12 @@ class WhisperTranscriber:
             current_tokens = []
 
         for word in words:
-            token = str(getattr(word, "word", "") or "")
+            token = str(self._word_field(word, "word", "") or "")
             if not token:
                 continue
 
-            word_start = self._safe_float(getattr(word, "start", None))
-            word_end = self._safe_float(getattr(word, "end", None))
+            word_start = self._safe_float(self._word_field(word, "start"))
+            word_end = self._safe_float(self._word_field(word, "end"))
 
             if current_tokens and word_start is not None:
                 gap = word_start - current_end
@@ -376,7 +585,7 @@ class WhisperTranscriber:
         if result:
             return result
 
-        text = normalize_text(getattr(seg, "text", ""))
+        text = normalize_text(str(self._segment_field(seg, "text", "") or ""))
         if not text:
             return []
         return [

@@ -13,7 +13,7 @@ Project codename/package: `dialog-txt`
   - `desktop.ogg` (system audio via loopback)
   - `mix.ogg` (ready-to-listen mixed track)
 - Stores each session in `recordings/<timestamp>/`
-- Transcribes both tracks with `faster-whisper`
+- Transcribes both tracks with selectable backend: `faster-whisper` or `openai-whisper` (`whisper`)
 - Merges lines into `transcript.txt` with speaker attribution and optional timestamps
 
 Transcript example:
@@ -72,11 +72,15 @@ Main options:
 - `last_microphone`
 - `speaker_self`, `speaker_other`
 - `auto_transcribe_after_record`
-- `whisper_model` (`tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`)
+- `transcription_library` (`faster-whisper` by default, or `whisper`)
+- `whisper_model`:
+  - for `faster-whisper`: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`
+  - for `whisper`: `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large(-v1/-v2/-v3)`, `turbo`
+- `whisper_device` (`auto`, `cpu`, `gpu`)
 - `whisper_language` (`ru`, `en`, `auto`, etc.)
 - `whisper_beam_size` (1..10)
 - `whisper_vad_filter` (`true/false`)
-- `whisper_compute_type` (`float16`, `int8_float16`, `int8`)
+- `whisper_compute_type` (`float16`, `int8_float16`, `int8`, applies to `faster-whisper`)
 - `include_timestamps` (`true/false`, default `false`)
 
 ### Data layout
@@ -106,6 +110,7 @@ recordings/
 - No microphones listed: click `Refresh` and verify input devices in OS settings.
 - Desktop capture error on macOS: install/select a virtual loopback input (BlackHole/Soundflower/Loopback).
 - Desktop capture error on Linux: check that monitor sources are exposed by PulseAudio/PipeWire.
+- Missing selected transcription library: the app will offer one-click install via `pip`.
 - Transcription error: if CUDA is unavailable, use `compute_type=int8` for CPU mode.
 
 ---
@@ -121,7 +126,7 @@ recordings/
   - `desktop.ogg` (звук системы через loopback)
   - `mix.ogg` (готовый микс для быстрого прослушивания)
 - Сохраняет сессию в `recordings/<timestamp>/`
-- Транскрибирует обе дорожки (`faster-whisper`)
+- Транскрибирует обе дорожки с выбором backend: `faster-whisper` или `openai-whisper` (`whisper`)
 - Объединяет реплики в `transcript.txt` с подписью спикера и опциональными таймкодами
 
 Пример строки в транскрипте:
@@ -180,11 +185,15 @@ python main.py
 - `last_microphone`
 - `speaker_self`, `speaker_other`
 - `auto_transcribe_after_record`
-- `whisper_model` (`tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`)
+- `transcription_library` (`faster-whisper` по умолчанию, либо `whisper`)
+- `whisper_model`:
+  - для `faster-whisper`: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`
+  - для `whisper`: `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large(-v1/-v2/-v3)`, `turbo`
+- `whisper_device` (`auto`, `cpu`, `gpu`)
 - `whisper_language` (`ru`, `en`, `auto` и др.)
 - `whisper_beam_size` (1..10)
 - `whisper_vad_filter` (`true/false`)
-- `whisper_compute_type` (`float16`, `int8_float16`, `int8`)
+- `whisper_compute_type` (`float16`, `int8_float16`, `int8`, используется для `faster-whisper`)
 - `include_timestamps` (`true/false`, по умолчанию `false`)
 
 ### Структура данных
@@ -214,4 +223,5 @@ recordings/
 - Нет микрофона в списке: нажмите `Обновить`, проверьте системные устройства ввода.
 - Ошибка desktop-захвата на macOS: установите/выберите virtual loopback-вход (BlackHole/Soundflower/Loopback).
 - Ошибка desktop-захвата на Linux: проверьте, что PulseAudio/PipeWire публикует monitor-источники.
+- Выбранная библиотека транскрибации не установлена: приложение предложит доустановить её через `pip`.
 - Ошибка транскрибации: если CUDA недоступна, используйте `compute_type=int8` для CPU-режима.
