@@ -209,20 +209,29 @@ def build_ui(app) -> None:
         command=app._open_selected_folder,
     )
     app.open_folder_button.grid(row=0, column=2, sticky=tk.W, padx=(4, 0))
+    app.delete_selected_button = ttk.Button(
+        recordings_actions,
+        text=app._tr("btn_delete_selected"),
+        command=app._delete_selected_recordings,
+    )
+    app.delete_selected_button.grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
 
-    columns = ("session", "duration", "audio", "txt")
+    columns = ("session", "folder", "duration", "audio", "txt")
     app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns, show="headings")
     app.recordings_tree.heading("session", text=app._tr("col_session"))
+    app.recordings_tree.heading("folder", text=app._tr("col_folder"))
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
-    app.recordings_tree.column("session", width=220, anchor=tk.W, stretch=True)
+    app.recordings_tree.column("session", width=180, anchor=tk.W, stretch=True)
+    app.recordings_tree.column("folder", width=180, anchor=tk.W, stretch=True)
     app.recordings_tree.column("duration", width=100, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("audio", width=72, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("txt", width=48, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.pack(fill=tk.BOTH, expand=True)
     app.recordings_tree.bind("<<TreeviewSelect>>", app._on_recording_selected)
     app.recordings_tree.bind("<Double-1>", app._on_recording_double_click)
+    app.recordings_tree.bind("<Delete>", app._on_recording_delete_key)
 
     app.log_box = ttk.LabelFrame(top, text=app._tr("group_log"), padding=6)
     app.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
@@ -252,7 +261,9 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.transcribe_selected_button.configure(text=app._tr("btn_transcribe_selected"))
     app.refresh_recordings_button.configure(text=app._tr("btn_refresh_list"))
     app.open_folder_button.configure(text=app._tr("btn_open_folder"))
+    app.delete_selected_button.configure(text=app._tr("btn_delete_selected"))
     app.recordings_tree.heading("session", text=app._tr("col_session"))
+    app.recordings_tree.heading("folder", text=app._tr("col_folder"))
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
@@ -308,6 +319,9 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     session = app._selected_session()
     app.refresh_recordings_button.configure(state=tk.NORMAL)
     app.open_folder_button.configure(state=tk.NORMAL if session else tk.DISABLED)
+    app.delete_selected_button.configure(
+        state=tk.DISABLED if is_running or not session else tk.NORMAL
+    )
 
 
 def update_status_line(app) -> None:
