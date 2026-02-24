@@ -521,8 +521,6 @@ class WhisperTranscriber:
             return right
         if not right:
             return left
-        if left.endswith((".", "!", "?", ":")):
-            return f"{left} {right}"
         return f"{left} {right}"
 
     def _render_text(self, segments: list[TranscriptSegment], include_timestamps: bool) -> str:

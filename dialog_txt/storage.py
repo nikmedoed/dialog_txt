@@ -86,11 +86,6 @@ def resolve_track_paths(session_dir: Path) -> tuple[Path | None, Path | None]:
     return mic_path, desktop_path
 
 
-def session_has_tracks(session_dir: Path) -> bool:
-    mic_path, desktop_path = resolve_track_paths(session_dir)
-    return mic_path is not None and desktop_path is not None
-
-
 def is_session_dir(session_dir: Path) -> bool:
     if not session_dir.is_dir():
         return False
