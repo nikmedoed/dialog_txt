@@ -19,6 +19,7 @@ from .config import (
     SHORT_SEGMENT_WORDS,
     WORD_PAUSE_SPLIT_GAP,
 )
+from .localization import tr
 from .models import TranscriptSegment, TranscriptionCancelled, TranscriptionOptions
 from .storage import resolve_track_paths, session_speaker_labels, transcript_path
 from .utils import format_seconds, normalize_text, to_mono
@@ -84,11 +85,14 @@ class WhisperTranscriber:
         return plan
 
     def _load_model(
-        self, options: TranscriptionOptions, progress_cb: Callable[[str, float], None]
+        self,
+        options: TranscriptionOptions,
+        progress_cb: Callable[[str, float], None],
+        ui_language: str,
     ) -> WhisperModel:
         load_plan = self._model_load_plan(options.compute_type)
         if not load_plan:
-            raise RuntimeError("Не удалось определить поддерживаемые вычислительные устройства.")
+            raise RuntimeError(tr(ui_language, "transcriber_err_compute_types"))
 
         errors: list[str] = []
         for device, compute_type in load_plan:
@@ -99,7 +103,13 @@ class WhisperTranscriber:
                     return model
 
                 progress_cb(
-                    f"Загрузка модели {options.model_name} ({compute_type}) на {device.upper()}...",
+                    tr(
+                        ui_language,
+                        "transcriber_status_model_loading",
+                        model=options.model_name,
+                        compute=compute_type,
+                        device=device.upper(),
+                    ),
                     1.0,
                 )
                 try:
@@ -115,7 +125,14 @@ class WhisperTranscriber:
                 return model
 
         joined = "; ".join(errors) if errors else "unknown initialization error"
-        raise RuntimeError(f"Не удалось загрузить модель {options.model_name}: {joined}")
+        raise RuntimeError(
+            tr(
+                ui_language,
+                "transcriber_err_model_load",
+                model=options.model_name,
+                error=joined,
+            )
+        )
 
     def transcribe_session(
         self,
@@ -123,18 +140,19 @@ class WhisperTranscriber:
         progress_cb: Callable[[str, float], None],
         cancel_event: threading.Event,
         options: TranscriptionOptions,
+        ui_language: str = "ru",
     ) -> Path:
         mic_path, desktop_path = resolve_track_paths(session_dir)
         if mic_path is None or desktop_path is None:
-            raise FileNotFoundError("В выбранной папке нет обеих дорожек (mic.ogg и desktop.ogg).")
+            raise FileNotFoundError(tr(ui_language, "transcriber_err_missing_tracks"))
         self_label, other_label = session_speaker_labels(session_dir)
 
-        model = self._load_model(options, progress_cb)
+        model = self._load_model(options, progress_cb, ui_language=ui_language)
 
         mic_duration = sf.info(str(mic_path)).duration or 0.0
         desktop_duration = sf.info(str(desktop_path)).duration or 0.0
 
-        progress_cb(f"Транскрибация дорожки [{other_label}]...", 5.0)
+        progress_cb(tr(ui_language, "transcriber_status_track", speaker=other_label), 5.0)
         desktop_segments = self._transcribe_track(
             model=model,
             audio_path=desktop_path,
@@ -145,12 +163,13 @@ class WhisperTranscriber:
             progress_span=45.0,
             progress_cb=progress_cb,
             cancel_event=cancel_event,
+            ui_language=ui_language,
         )
 
         if cancel_event.is_set():
             raise TranscriptionCancelled()
 
-        progress_cb(f"Транскрибация дорожки [{self_label}]...", 50.0)
+        progress_cb(tr(ui_language, "transcriber_status_track", speaker=self_label), 50.0)
         mic_segments = self._transcribe_track(
             model=model,
             audio_path=mic_path,
@@ -161,6 +180,7 @@ class WhisperTranscriber:
             progress_span=45.0,
             progress_cb=progress_cb,
             cancel_event=cancel_event,
+            ui_language=ui_language,
         )
 
         if cancel_event.is_set():
@@ -171,7 +191,7 @@ class WhisperTranscriber:
         output_text = self._render_text(merged, options.include_timestamps)
         out_path = transcript_path(session_dir)
         out_path.write_text(output_text, encoding="utf-8")
-        progress_cb("Готово", 100.0)
+        progress_cb(tr(ui_language, "transcriber_status_done"), 100.0)
         return out_path
 
     def _transcribe_track(
@@ -185,6 +205,7 @@ class WhisperTranscriber:
         progress_span: float,
         progress_cb: Callable[[str, float], None],
         cancel_event: threading.Event,
+        ui_language: str,
     ) -> list[TranscriptSegment]:
         language = options.language.strip()
         language_arg = None if language.lower() in ("", "auto", "авто") else language
@@ -215,7 +236,10 @@ class WhisperTranscriber:
 
             ratio = min(max(float(seg.end) / duration, 0.0), 1.0)
             progress = progress_base + ratio * progress_span
-            progress_cb(f"Транскрибация: {speaker}", progress)
+            progress_cb(
+                tr(ui_language, "transcriber_status_speaker_progress", speaker=speaker),
+                progress,
+            )
 
         if not candidates:
             return []

@@ -11,10 +11,15 @@ from datetime import datetime
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
+from tkinter import messagebox
 
 from .config import DEFAULT_OTHER_LABEL, DEFAULT_SELF_LABEL
+from .localization import (
+    UI_LANGUAGE_CODES,
+    resolve_ui_language,
+    system_microphone_label_prefixes,
+    tr,
+)
 from .models import RecordingError, TranscriptionCancelled, TranscriptionOptions
 from .numpy_compat import apply_numpy_fromstring_compat_patch
 from .recording import DualTrackLevelMonitor, DualTrackRecorder
@@ -22,12 +27,10 @@ from .settings import load_app_settings, save_app_settings
 from .settings import (
     ALLOWED_COMPUTE_TYPES,
     ALLOWED_MODELS,
-    ALLOWED_UI_LANGUAGES,
     DEFAULT_BEAM_SIZE,
     DEFAULT_COMPUTE_TYPE,
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
-    DEFAULT_UI_LANGUAGE,
 )
 from .storage import (
     create_session_dir,
@@ -41,228 +44,19 @@ from .storage import (
     write_initial_metadata,
 )
 from .transcription import WhisperTranscriber
+from .ui_layout import (
+    apply_localization,
+    build_ui,
+    set_record_button_style,
+    set_recording_ui_state,
+    set_transcription_ui_state,
+    update_status_line,
+)
 from .utils import format_seconds
 
 apply_numpy_fromstring_compat_patch()
 
 import soundcard as sc
-
-
-UI_LANGUAGE_CODES = {"RU": "ru", "EN": "en"}
-
-UI_TEXTS = {
-    "ru": {
-        "group_recording": "Запись",
-        "label_microphone": "Микрофон:",
-        "label_ui_language": "UI:",
-        "record_start": "● Начать запись",
-        "record_stop": "■ Остановить запись",
-        "status_prefix": "Статус",
-        "status_idle": "ожидание",
-        "label_level_mic": "Mic",
-        "label_level_desktop": "Desktop",
-        "group_transcription": "Транскрибация",
-        "auto_transcribe_after_record": "Автотранскрибация после записи",
-        "label_speaker_mic": "Метка mic:",
-        "label_speaker_desktop": "Метка desktop:",
-        "include_timestamps": "добавить таймметки",
-        "label_model": "Модель:",
-        "label_language": "Язык:",
-        "label_beam": "Beam:",
-        "label_compute": "Compute:",
-        "vad_filter": "Фильтр тишины (без обрезки речи)",
-        "label_progress": "Прогресс:",
-        "cancel": "Отменить",
-        "group_recordings": "Существующие записи",
-        "btn_transcribe_selected": "Транскрибировать выбранную",
-        "btn_retranscribe": "Перетранскрибировать",
-        "btn_cannot_transcribe_missing_tracks": "Нельзя: нет обеих дорожек",
-        "btn_refresh_list": "Обновить список",
-        "btn_open_folder": "Открыть папку",
-        "col_session": "Сессия",
-        "col_duration": "Длительность",
-        "col_audio": "Аудио",
-        "col_txt": "TXT",
-        "group_log": "Лог событий",
-        "title_error": "Ошибка",
-        "title_busy": "Занято",
-        "title_open_folder": "Открыть папку",
-        "title_recording_selection": "Выбор записи",
-        "title_cancelled": "Отменено",
-        "title_recording_error": "Ошибка записи",
-        "title_transcription_error": "Ошибка транскрибации",
-        "msg_microphones_list_failed": "Не удалось получить список микрофонов:\n{error}",
-        "log_microphones_list_failed": "Ошибка списка микрофонов: {error}",
-        "status_microphones_found": "Микрофонов найдено: {count}",
-        "log_microphones_refreshed": "Список микрофонов обновлён: {count} устройств",
-        "status_microphones_missing": "Микрофоны не найдены",
-        "log_microphones_missing": "Микрофоны не найдены",
-        "log_recordings_refreshed": "Список записей обновлён: {count} сессий",
-        "msg_select_recording_from_list": "Выберите запись из списка.",
-        "log_folder_opened": "Открыта папка: {path}",
-        "log_open_folder_error": "Ошибка открытия папки {path}: {error}",
-        "msg_open_folder_failed": "Не удалось открыть папку:\n{path}\n\n{error}",
-        "err_no_output_device": "Не найдено устройство вывода для desktop-записи.",
-        "err_no_output_device_id": "У устройства вывода отсутствует ID для loopback.",
-        "err_open_loopback_failed": "Не удалось открыть loopback-источник: {error}",
-        "err_list_desktop_sources_failed": "Не удалось получить список источников desktop-аудио: {error}",
-        "err_loopback_not_found": "Не найден источник desktop-аудио.",
-        "err_desktop_source_not_found_macos": (
-            "На macOS не найден источник desktop-аудио. "
-            "Используйте virtual loopback-устройство (например, BlackHole/Soundflower/Loopback)."
-        ),
-        "log_level_monitor_unavailable": "Монитор уровней недоступен: {error}",
-        "msg_wait_transcription_complete": "Сначала дождитесь завершения текущей транскрибации.",
-        "msg_select_microphone": "Выберите микрофон.",
-        "msg_desktop_device_failed": "Не удалось получить устройство рабочего стола:\n{error}",
-        "log_desktop_capture_error": "Ошибка desktop-захвата: {error}",
-        "status_recording_active": "Идёт запись: {session} · {duration}",
-        "log_recording_started": "Старт записи: {session_dir}",
-        "log_mic_source": "Mic: {mic}",
-        "log_desktop_source": "Desktop: {desktop}",
-        "log_speaker_labels": "Подписи: [{self_label}] / [{other_label}]",
-        "status_recording_error": "Ошибка записи",
-        "log_recording_error": "Ошибка записи: {error}",
-        "status_recording_stopped_transcribe": "Запись остановлена ({duration}). Запускаю транскрибацию...",
-        "log_recording_stopped_transcribe": "Запись остановлена ({duration}), запускаю транскрибацию",
-        "status_recording_stopped_no_auto": "Запись остановлена ({duration}). Автотранскрибация отключена",
-        "log_recording_stopped_no_auto": "Запись остановлена ({duration}), автотранскрибация отключена",
-        "session_fallback": "сессия",
-        "msg_stop_recording_first": "Сначала остановите текущую запись.",
-        "msg_transcription_running": "Транскрибация уже выполняется.",
-        "msg_session_missing_tracks": "В выбранной сессии отсутствуют дорожки mic.ogg и desktop.ogg.",
-        "status_transcription_active": "Транскрибация: {session}",
-        "log_transcription_started": (
-            "Старт транскрибации: {session_dir} | model={model}, lang={lang}, "
-            "beam={beam}, vad={vad}, compute={compute}"
-        ),
-        "status_transcription_cancelling": "Отмена транскрибации...",
-        "log_transcription_cancel_requested": "Запрошена отмена транскрибации",
-        "log_level_monitor_error": "Ошибка монитора уровней ({source}): {message}",
-        "log_transcription_progress": "Транскрибация: {percent}% ({message})",
-        "status_done": "Готово: {session}",
-        "log_transcription_done": "Транскрибация завершена: {path}",
-        "status_transcription_cancelled": "Транскрибация отменена: {session}",
-        "log_transcription_cancelled": "Транскрибация отменена: {session_dir}",
-        "msg_transcription_cancelled": "Транскрибация была отменена пользователем.",
-        "status_transcription_error": "Ошибка транскрибации",
-        "log_transcription_error": "Ошибка транскрибации: {error}",
-        "audio_missing_both": "нет audio",
-        "audio_missing_mic": "нет mic",
-        "audio_missing_desktop": "нет desktop",
-        "system_microphone": "Системный",
-        "system_not_defined": "не определён",
-        "log_window_close_cancel": "Окно закрывается: отправлен запрос на отмену транскрибации",
-    },
-    "en": {
-        "group_recording": "Recording",
-        "label_microphone": "Microphone:",
-        "label_ui_language": "UI:",
-        "record_start": "● Start recording",
-        "record_stop": "■ Stop recording",
-        "status_prefix": "Status",
-        "status_idle": "idle",
-        "label_level_mic": "Mic",
-        "label_level_desktop": "Desktop",
-        "group_transcription": "Transcription",
-        "auto_transcribe_after_record": "Auto-transcribe after recording",
-        "label_speaker_mic": "mic label:",
-        "label_speaker_desktop": "desktop label:",
-        "include_timestamps": "include timestamps",
-        "label_model": "Model:",
-        "label_language": "Language:",
-        "label_beam": "Beam:",
-        "label_compute": "Compute:",
-        "vad_filter": "Silence filter (no speech cutting)",
-        "label_progress": "Progress:",
-        "cancel": "Cancel",
-        "group_recordings": "Existing recordings",
-        "btn_transcribe_selected": "Transcribe selected",
-        "btn_retranscribe": "Re-transcribe",
-        "btn_cannot_transcribe_missing_tracks": "Unavailable: missing both tracks",
-        "btn_refresh_list": "Refresh list",
-        "btn_open_folder": "Open folder",
-        "col_session": "Session",
-        "col_duration": "Duration",
-        "col_audio": "Audio",
-        "col_txt": "TXT",
-        "group_log": "Event log",
-        "title_error": "Error",
-        "title_busy": "Busy",
-        "title_open_folder": "Open folder",
-        "title_recording_selection": "Select recording",
-        "title_cancelled": "Cancelled",
-        "title_recording_error": "Recording error",
-        "title_transcription_error": "Transcription error",
-        "msg_microphones_list_failed": "Failed to get microphone list:\n{error}",
-        "log_microphones_list_failed": "Microphone list error: {error}",
-        "status_microphones_found": "Microphones found: {count}",
-        "log_microphones_refreshed": "Microphone list refreshed: {count} devices",
-        "status_microphones_missing": "No microphones found",
-        "log_microphones_missing": "No microphones found",
-        "log_recordings_refreshed": "Recordings list refreshed: {count} sessions",
-        "msg_select_recording_from_list": "Select a recording from the list.",
-        "log_folder_opened": "Opened folder: {path}",
-        "log_open_folder_error": "Failed to open folder {path}: {error}",
-        "msg_open_folder_failed": "Failed to open folder:\n{path}\n\n{error}",
-        "err_no_output_device": "No output device found for desktop recording.",
-        "err_no_output_device_id": "Output device does not provide an ID for loopback.",
-        "err_open_loopback_failed": "Failed to open loopback source: {error}",
-        "err_list_desktop_sources_failed": "Failed to list desktop audio sources: {error}",
-        "err_loopback_not_found": "Desktop audio source was not found.",
-        "err_desktop_source_not_found_macos": (
-            "Desktop audio source was not found on macOS. "
-            "Use a virtual loopback device (for example, BlackHole/Soundflower/Loopback)."
-        ),
-        "log_level_monitor_unavailable": "Level monitor is unavailable: {error}",
-        "msg_wait_transcription_complete": "Wait for the current transcription to complete first.",
-        "msg_select_microphone": "Select a microphone.",
-        "msg_desktop_device_failed": "Failed to access desktop device:\n{error}",
-        "log_desktop_capture_error": "Desktop capture error: {error}",
-        "status_recording_active": "Recording: {session} · {duration}",
-        "log_recording_started": "Recording started: {session_dir}",
-        "log_mic_source": "Mic: {mic}",
-        "log_desktop_source": "Desktop: {desktop}",
-        "log_speaker_labels": "Labels: [{self_label}] / [{other_label}]",
-        "status_recording_error": "Recording error",
-        "log_recording_error": "Recording error: {error}",
-        "status_recording_stopped_transcribe": "Recording stopped ({duration}). Starting transcription...",
-        "log_recording_stopped_transcribe": "Recording stopped ({duration}), starting transcription",
-        "status_recording_stopped_no_auto": "Recording stopped ({duration}). Auto-transcribe is off",
-        "log_recording_stopped_no_auto": "Recording stopped ({duration}), auto-transcribe is off",
-        "session_fallback": "session",
-        "msg_stop_recording_first": "Stop the current recording first.",
-        "msg_transcription_running": "Transcription is already running.",
-        "msg_session_missing_tracks": "Selected session is missing mic.ogg and desktop.ogg tracks.",
-        "status_transcription_active": "Transcribing: {session}",
-        "log_transcription_started": (
-            "Transcription started: {session_dir} | model={model}, lang={lang}, "
-            "beam={beam}, vad={vad}, compute={compute}"
-        ),
-        "status_transcription_cancelling": "Cancelling transcription...",
-        "log_transcription_cancel_requested": "Transcription cancellation requested",
-        "log_level_monitor_error": "Level monitor error ({source}): {message}",
-        "log_transcription_progress": "Transcription: {percent}% ({message})",
-        "status_done": "Done: {session}",
-        "log_transcription_done": "Transcription finished: {path}",
-        "status_transcription_cancelled": "Transcription cancelled: {session}",
-        "log_transcription_cancelled": "Transcription cancelled: {session_dir}",
-        "msg_transcription_cancelled": "Transcription was cancelled by user.",
-        "status_transcription_error": "Transcription error",
-        "log_transcription_error": "Transcription error: {error}",
-        "audio_missing_both": "no audio",
-        "audio_missing_mic": "no mic",
-        "audio_missing_desktop": "no desktop",
-        "system_microphone": "System",
-        "system_not_defined": "not set",
-        "log_window_close_cancel": "Window is closing: transcription cancellation requested",
-    },
-}
-
-SYSTEM_MICROPHONE_LABEL_PREFIXES = (
-    f"{UI_TEXTS['ru']['system_microphone']} (",
-    f"{UI_TEXTS['en']['system_microphone']} (",
-)
 
 DESKTOP_SOURCE_NAME_HINTS = (
     "loopback",
@@ -344,241 +138,17 @@ class App(tk.Tk):
         self.after(150, self._poll_events)
 
     def _build_ui(self) -> None:
-        style = ttk.Style(self)
-        style.configure("Treeview", rowheight=19)
-        style.configure("Compact.Horizontal.TProgressbar", thickness=8)
-
-        top = ttk.Frame(self, padding=6)
-        top.pack(fill=tk.BOTH, expand=True)
-
-        self.controls_box = ttk.LabelFrame(top, text=self._tr("group_recording"), padding=6)
-        self.controls_box.pack(fill=tk.X)
-        self.controls_box.columnconfigure(0, weight=1)
-
-        mic_row = ttk.Frame(self.controls_box)
-        mic_row.grid(row=0, column=0, sticky=tk.EW)
-        mic_row.columnconfigure(3, weight=1)
-        self.mic_label = ttk.Label(mic_row, text=self._tr("label_microphone"))
-        self.mic_label.grid(row=0, column=0, sticky=tk.W)
-        self.mic_combo = ttk.Combobox(mic_row, state="readonly", width=34)
-        self.mic_combo.grid(row=0, column=1, sticky=tk.W, padx=(2, 0))
-        self.mic_combo.bind("<<ComboboxSelected>>", self._on_mic_selected)
-
-        self.refresh_mic_button = ttk.Button(
-            mic_row, text="↻", width=3, command=self._refresh_microphones
-        )
-        self.refresh_mic_button.grid(row=0, column=2, padx=(4, 0), sticky=tk.W)
-
-        self.ui_language_frame = ttk.Frame(mic_row)
-        self.ui_language_frame.grid(row=0, column=3)
-        self.ui_language_label = ttk.Label(self.ui_language_frame, text=self._tr("label_ui_language"))
-        self.ui_language_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-        self.ui_language_combo = ttk.Combobox(
-            self.ui_language_frame,
-            state="readonly",
-            width=4,
-            values=list(UI_LANGUAGE_CODES.keys()),
-            textvariable=self.ui_language_code_var,
-        )
-        self.ui_language_combo.grid(row=0, column=1, sticky=tk.W)
-        self.ui_language_combo.bind("<<ComboboxSelected>>", self._on_ui_language_selected)
-
-        self.record_button = tk.Button(
-            mic_row,
-            text=self._tr("record_start"),
-            command=self._toggle_recording,
-            bg="#1f8b4c",
-            fg="white",
-            activebackground="#176a38",
-            activeforeground="white",
-            disabledforeground="#d8d8d8",
-            relief=tk.FLAT,
-            bd=0,
-            padx=12,
-            pady=5,
-        )
-        self.record_button.grid(row=0, column=4, sticky=tk.E)
-
-        self.status_label = ttk.Label(self.controls_box, text="")
-        self.status_label.grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
-        self._update_status_line()
-
-        levels_row = ttk.Frame(self.controls_box)
-        levels_row.grid(row=2, column=0, sticky=tk.EW, pady=(2, 0))
-        levels_row.columnconfigure(1, weight=1)
-        levels_row.columnconfigure(4, weight=1)
-
-        self.level_mic_label = ttk.Label(levels_row, text=self._tr("label_level_mic"))
-        self.level_mic_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-        self.mic_level = ttk.Progressbar(
-            levels_row,
-            mode="determinate",
-            maximum=100,
-            style="Compact.Horizontal.TProgressbar",
-        )
-        self.mic_level.grid(row=0, column=1, sticky=tk.EW, padx=(0, 8))
-
-        self.level_desktop_label = ttk.Label(levels_row, text=self._tr("label_level_desktop"))
-        self.level_desktop_label.grid(row=0, column=3, sticky=tk.W, padx=(0, 4))
-        self.desktop_level = ttk.Progressbar(
-            levels_row,
-            mode="determinate",
-            maximum=100,
-            style="Compact.Horizontal.TProgressbar",
-        )
-        self.desktop_level.grid(row=0, column=4, sticky=tk.EW)
-
-        self.transcribe_box = ttk.LabelFrame(top, text=self._tr("group_transcription"), padding=6)
-        self.transcribe_box.pack(fill=tk.X, pady=(6, 0))
-        self.transcribe_box.columnconfigure(1, weight=1)
-
-        transcribe_flags = ttk.Frame(self.transcribe_box)
-        transcribe_flags.grid(row=0, column=0, columnspan=4, sticky=tk.W)
-        self.auto_transcribe_check = ttk.Checkbutton(
-            transcribe_flags,
-            text=self._tr("auto_transcribe_after_record"),
-            variable=self.auto_transcribe_var,
-        )
-        self.auto_transcribe_check.grid(row=0, column=0, sticky=tk.W)
-
-        speakers_row = ttk.Frame(self.transcribe_box)
-        speakers_row.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(4, 0))
-        speakers_row.columnconfigure(1, weight=1)
-        speakers_row.columnconfigure(3, weight=1)
-        self.self_label_label = ttk.Label(speakers_row, text=self._tr("label_speaker_mic"))
-        self.self_label_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-        self.self_label_entry = ttk.Entry(speakers_row, textvariable=self.self_label_var)
-        self.self_label_entry.grid(row=0, column=1, sticky=tk.EW, padx=(0, 8))
-        self.other_label_label = ttk.Label(speakers_row, text=self._tr("label_speaker_desktop"))
-        self.other_label_label.grid(row=0, column=2, sticky=tk.W, padx=(0, 4))
-        self.other_label_entry = ttk.Entry(speakers_row, textvariable=self.other_label_var)
-        self.other_label_entry.grid(row=0, column=3, sticky=tk.EW, padx=(0, 8))
-        self.include_timestamps_check = ttk.Checkbutton(
-            speakers_row,
-            text=self._tr("include_timestamps"),
-            variable=self.include_timestamps_var,
-        )
-        self.include_timestamps_check.grid(row=0, column=4, sticky=tk.W)
-
-        whisper_row = ttk.Frame(self.transcribe_box)
-        whisper_row.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(4, 0))
-        self.model_label = ttk.Label(whisper_row, text=self._tr("label_model"))
-        self.model_label.grid(row=0, column=0, sticky=tk.W)
-        self.model_combo = ttk.Combobox(
-            whisper_row,
-            state="readonly",
-            width=10,
-            values=list(ALLOWED_MODELS),
-            textvariable=self.model_var,
-        )
-        self.model_combo.grid(row=0, column=1, sticky=tk.W, padx=(3, 8))
-        self.language_label = ttk.Label(whisper_row, text=self._tr("label_language"))
-        self.language_label.grid(row=0, column=2, sticky=tk.W)
-        self.language_combo = ttk.Combobox(
-            whisper_row,
-            width=5,
-            values=["ru", "en", "auto"],
-            textvariable=self.language_var,
-        )
-        self.language_combo.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
-        self.beam_label = ttk.Label(whisper_row, text=self._tr("label_beam"))
-        self.beam_label.grid(row=0, column=4, sticky=tk.W)
-        self.beam_spinbox = ttk.Spinbox(
-            whisper_row,
-            from_=1,
-            to=10,
-            width=4,
-            textvariable=self.beam_size_var,
-        )
-        self.beam_spinbox.grid(row=0, column=5, sticky=tk.W, padx=(3, 8))
-        self.compute_label = ttk.Label(whisper_row, text=self._tr("label_compute"))
-        self.compute_label.grid(row=0, column=6, sticky=tk.W)
-        self.compute_type_combo = ttk.Combobox(
-            whisper_row,
-            state="readonly",
-            width=8,
-            values=list(ALLOWED_COMPUTE_TYPES),
-            textvariable=self.compute_type_var,
-        )
-        self.compute_type_combo.grid(row=0, column=7, sticky=tk.W, padx=(3, 8))
-        self.vad_filter_check = ttk.Checkbutton(
-            whisper_row,
-            text=self._tr("vad_filter"),
-            variable=self.vad_filter_var,
-        )
-        self.vad_filter_check.grid(row=0, column=8, sticky=tk.W)
-
-        self.progress_label_title = ttk.Label(self.transcribe_box, text=self._tr("label_progress"))
-        self.progress_label_title.grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
-        self.progress = ttk.Progressbar(self.transcribe_box, mode="determinate", maximum=100)
-        self.progress.grid(row=3, column=1, sticky=tk.EW, pady=(6, 0), padx=(6, 0))
-        self.progress_label = ttk.Label(self.transcribe_box, text="0%")
-        self.progress_label.grid(row=3, column=2, sticky=tk.W, padx=(6, 0), pady=(6, 0))
-
-        self.cancel_transcribe_button = ttk.Button(
-            self.transcribe_box,
-            text=self._tr("cancel"),
-            command=self._cancel_transcription,
-            state=tk.DISABLED,
-        )
-        self.cancel_transcribe_button.grid(row=3, column=3, sticky=tk.E, padx=(6, 0), pady=(6, 0))
-
-        self.recordings_box = ttk.LabelFrame(top, text=self._tr("group_recordings"), padding=6)
-        self.recordings_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
-
-        recordings_actions = ttk.Frame(self.recordings_box)
-        recordings_actions.pack(fill=tk.X, pady=(0, 4))
-        self.transcribe_selected_button = ttk.Button(
-            recordings_actions,
-            text=self._tr("btn_transcribe_selected"),
-            command=self._transcribe_selected,
-        )
-        self.transcribe_selected_button.grid(row=0, column=0, sticky=tk.W)
-        self.refresh_recordings_button = ttk.Button(
-            recordings_actions,
-            text=self._tr("btn_refresh_list"),
-            command=self._refresh_recordings,
-        )
-        self.refresh_recordings_button.grid(row=0, column=1, sticky=tk.W, padx=(4, 0))
-        self.open_folder_button = ttk.Button(
-            recordings_actions, text=self._tr("btn_open_folder"), command=self._open_selected_folder
-        )
-        self.open_folder_button.grid(row=0, column=2, sticky=tk.W, padx=(4, 0))
-
-        columns = ("session", "duration", "audio", "txt")
-        self.recordings_tree = ttk.Treeview(self.recordings_box, columns=columns, show="headings")
-        self.recordings_tree.heading("session", text=self._tr("col_session"))
-        self.recordings_tree.heading("duration", text=self._tr("col_duration"))
-        self.recordings_tree.heading("audio", text=self._tr("col_audio"))
-        self.recordings_tree.heading("txt", text=self._tr("col_txt"))
-        self.recordings_tree.column("session", width=220, anchor=tk.W, stretch=True)
-        self.recordings_tree.column("duration", width=100, anchor=tk.CENTER, stretch=False)
-        self.recordings_tree.column("audio", width=72, anchor=tk.CENTER, stretch=False)
-        self.recordings_tree.column("txt", width=48, anchor=tk.CENTER, stretch=False)
-        self.recordings_tree.pack(fill=tk.BOTH, expand=True)
-        self.recordings_tree.bind("<<TreeviewSelect>>", self._on_recording_selected)
-        self.recordings_tree.bind("<Double-1>", self._on_recording_double_click)
-
-        self.log_box = ttk.LabelFrame(top, text=self._tr("group_log"), padding=6)
-        self.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
-        self.log_text = ScrolledText(self.log_box, height=4, wrap=tk.WORD, state=tk.DISABLED)
-        self.log_text.pack(fill=tk.BOTH, expand=True)
+        build_ui(self)
 
     def _resolve_ui_language(self, value: str | None) -> str:
-        language = str(value or DEFAULT_UI_LANGUAGE).strip().lower()
-        if language not in ALLOWED_UI_LANGUAGES:
-            return DEFAULT_UI_LANGUAGE
-        return language
+        return resolve_ui_language(value)
 
     def _tr(self, key: str, **kwargs) -> str:
-        fallback_pack = UI_TEXTS[DEFAULT_UI_LANGUAGE]
-        language_pack = UI_TEXTS.get(self.ui_language, fallback_pack)
-        template = language_pack.get(key, fallback_pack.get(key, key))
-        return template.format(**kwargs) if kwargs else template
+        return tr(self.ui_language, key, **kwargs)
 
     def _on_ui_language_selected(self, _event=None) -> None:
         selected_code = self.ui_language_code_var.get().strip().upper()
-        target_language = UI_LANGUAGE_CODES.get(selected_code, DEFAULT_UI_LANGUAGE)
+        target_language = UI_LANGUAGE_CODES.get(selected_code, resolve_ui_language(None))
         if target_language == self.ui_language:
             return
         self.ui_language = target_language
@@ -586,38 +156,7 @@ class App(tk.Tk):
         self._save_app_settings()
 
     def _apply_localization(self, refresh_data: bool = False) -> None:
-        self.controls_box.configure(text=self._tr("group_recording"))
-        self.mic_label.configure(text=self._tr("label_microphone"))
-        self.ui_language_label.configure(text=self._tr("label_ui_language"))
-        self.level_mic_label.configure(text=self._tr("label_level_mic"))
-        self.level_desktop_label.configure(text=self._tr("label_level_desktop"))
-        self.transcribe_box.configure(text=self._tr("group_transcription"))
-        self.auto_transcribe_check.configure(text=self._tr("auto_transcribe_after_record"))
-        self.self_label_label.configure(text=self._tr("label_speaker_mic"))
-        self.other_label_label.configure(text=self._tr("label_speaker_desktop"))
-        self.include_timestamps_check.configure(text=self._tr("include_timestamps"))
-        self.model_label.configure(text=self._tr("label_model"))
-        self.language_label.configure(text=self._tr("label_language"))
-        self.beam_label.configure(text=self._tr("label_beam"))
-        self.compute_label.configure(text=self._tr("label_compute"))
-        self.vad_filter_check.configure(text=self._tr("vad_filter"))
-        self.progress_label_title.configure(text=self._tr("label_progress"))
-        self.cancel_transcribe_button.configure(text=self._tr("cancel"))
-        self.recordings_box.configure(text=self._tr("group_recordings"))
-        self.transcribe_selected_button.configure(text=self._tr("btn_transcribe_selected"))
-        self.refresh_recordings_button.configure(text=self._tr("btn_refresh_list"))
-        self.open_folder_button.configure(text=self._tr("btn_open_folder"))
-        self.recordings_tree.heading("session", text=self._tr("col_session"))
-        self.recordings_tree.heading("duration", text=self._tr("col_duration"))
-        self.recordings_tree.heading("audio", text=self._tr("col_audio"))
-        self.recordings_tree.heading("txt", text=self._tr("col_txt"))
-        self.log_box.configure(text=self._tr("group_log"))
-        self._set_record_button_style(is_recording=self.recorder is not None)
-        self._update_status_line()
-        self._on_recording_selected()
-        if refresh_data:
-            self._refresh_microphones()
-            self._refresh_recordings()
+        apply_localization(self, refresh_data=refresh_data)
 
     def _refresh_microphones(self) -> None:
         try:
@@ -759,7 +298,8 @@ class App(tk.Tk):
         normalized_name = str(selected_name or "")
         if normalized_name == self.SYSTEM_MICROPHONE_SETTING:
             return True
-        return any(normalized_name.startswith(prefix) for prefix in SYSTEM_MICROPHONE_LABEL_PREFIXES)
+        prefixes = system_microphone_label_prefixes()
+        return any(normalized_name.startswith(prefix) for prefix in prefixes)
 
     def _preferred_microphone_selection(self, previous_selection: str) -> str:
         if self._is_system_microphone_selection(previous_selection):
@@ -1190,25 +730,31 @@ class App(tk.Tk):
                 model=options.model_name,
                 lang=options.language,
                 beam=options.beam_size,
-                vad="on" if options.vad_filter else "off",
+                vad=self._tr("flag_on") if options.vad_filter else self._tr("flag_off"),
                 compute=options.compute_type,
             )
         )
 
         self.transcription_thread = threading.Thread(
             target=self._transcribe_worker,
-            args=(session_dir, options),
+            args=(session_dir, options, self.ui_language),
             daemon=True,
         )
         self.transcription_thread.start()
 
-    def _transcribe_worker(self, session_dir: Path, options: TranscriptionOptions) -> None:
+    def _transcribe_worker(
+        self,
+        session_dir: Path,
+        options: TranscriptionOptions,
+        ui_language: str,
+    ) -> None:
         try:
             out_path = self.transcriber.transcribe_session(
                 session_dir=session_dir,
                 progress_cb=lambda text, pct: self.event_queue.put(("progress", text, pct)),
                 cancel_event=self.cancel_transcription_event,
                 options=options,
+                ui_language=ui_language,
             )
             self.event_queue.put(("done", session_dir, out_path))
         except TranscriptionCancelled:
@@ -1298,53 +844,20 @@ class App(tk.Tk):
             self._stop_recording()
 
     def _set_record_button_style(self, is_recording: bool) -> None:
-        if is_recording:
-            self.record_button.configure(
-                text=self._tr("record_stop"),
-                bg="#b23b3b",
-                activebackground="#8c2f2f",
-            )
-            return
-        self.record_button.configure(
-            text=self._tr("record_start"),
-            bg="#1f8b4c",
-            activebackground="#176a38",
-        )
+        set_record_button_style(self, is_recording=is_recording)
 
     def _set_recording_ui_state(self, is_recording: bool) -> None:
-        self._set_record_button_style(is_recording)
-        self.record_button.configure(state=tk.NORMAL)
-        self.mic_combo.configure(state=tk.DISABLED if is_recording else "readonly")
-        self.ui_language_combo.configure(state=tk.DISABLED if is_recording else "readonly")
-        self.refresh_mic_button.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
+        set_recording_ui_state(self, is_recording=is_recording)
 
     def _set_transcription_ui_state(self, is_running: bool) -> None:
-        if is_running:
-            self.transcribe_selected_button.configure(state=tk.DISABLED)
-        else:
-            session = self._selected_session()
-            can_transcribe = bool(session and self._session_audio_ready(session))
-            self.transcribe_selected_button.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
-        self.self_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.other_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.auto_transcribe_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.model_combo.configure(state=tk.DISABLED if is_running else "readonly")
-        self.language_combo.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.beam_spinbox.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.vad_filter_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.compute_type_combo.configure(state=tk.DISABLED if is_running else "readonly")
-        self.include_timestamps_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.cancel_transcribe_button.configure(state=tk.NORMAL if is_running else tk.DISABLED)
-        session = self._selected_session()
-        self.refresh_recordings_button.configure(state=tk.NORMAL)
-        self.open_folder_button.configure(state=tk.NORMAL if session else tk.DISABLED)
+        set_transcription_ui_state(self, is_running=is_running)
 
     def _set_status(self, text: str) -> None:
         self.status_text = text
         self._update_status_line()
 
     def _update_status_line(self) -> None:
-        self.status_label.configure(text=f"{self._tr('status_prefix')}: {self.status_text}")
+        update_status_line(self)
 
     def _session_audio_ready(self, session_dir: Path) -> bool:
         mic_path, desktop_path = resolve_track_paths(session_dir)
