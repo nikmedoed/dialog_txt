@@ -3,10 +3,84 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+from typing import Callable
 
 from .localization import UI_LANGUAGE_CODES
 from .settings import ALLOWED_COMPUTE_TYPES
 from .transcription_backends import ALLOWED_DEVICES, ALLOWED_TRANSCRIPTION_LIBRARIES
+
+
+class HoverTooltip:
+    def __init__(
+        self,
+        widget: tk.Widget,
+        text_getter: Callable[[], str],
+        *,
+        delay_ms: int = 350,
+    ) -> None:
+        self.widget = widget
+        self.text_getter = text_getter
+        self.delay_ms = delay_ms
+        self._after_id: str | None = None
+        self._tooltip_window: tk.Toplevel | None = None
+        self.widget.bind("<Enter>", self._on_enter, add="+")
+        self.widget.bind("<Leave>", self._on_leave, add="+")
+        self.widget.bind("<ButtonPress>", self._on_leave, add="+")
+        self.widget.bind("<Destroy>", self._on_destroy, add="+")
+
+    def _on_enter(self, _event=None) -> None:
+        self._cancel_pending()
+        self._after_id = self.widget.after(self.delay_ms, self._show)
+
+    def _on_leave(self, _event=None) -> None:
+        self._cancel_pending()
+        self._hide()
+
+    def _on_destroy(self, _event=None) -> None:
+        self._cancel_pending()
+        self._hide()
+
+    def _cancel_pending(self) -> None:
+        if self._after_id is None:
+            return
+        self.widget.after_cancel(self._after_id)
+        self._after_id = None
+
+    def _show(self) -> None:
+        self._after_id = None
+        if self._tooltip_window is not None:
+            return
+        text = self.text_getter().strip()
+        if not text:
+            return
+        x, y = self.widget.winfo_pointerxy()
+        tooltip_window = tk.Toplevel(self.widget)
+        tooltip_window.wm_overrideredirect(True)
+        try:
+            tooltip_window.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        tooltip_window.wm_geometry(f"+{x + 14}+{y + 14}")
+        label = tk.Label(
+            tooltip_window,
+            text=text,
+            justify=tk.LEFT,
+            wraplength=360,
+            bg="#fffbe6",
+            fg="#202020",
+            relief=tk.SOLID,
+            bd=1,
+            padx=6,
+            pady=4,
+        )
+        label.pack()
+        self._tooltip_window = tooltip_window
+
+    def _hide(self) -> None:
+        if self._tooltip_window is None:
+            return
+        self._tooltip_window.destroy()
+        self._tooltip_window = None
 
 
 def build_ui(app) -> None:
@@ -259,6 +333,29 @@ def build_ui(app) -> None:
     app.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
     app.log_text = ScrolledText(app.log_box, height=4, wrap=tk.WORD, state=tk.DISABLED)
     app.log_text.pack(fill=tk.BOTH, expand=True)
+    _install_settings_tooltips(app)
+
+
+def _install_settings_tooltips(app) -> None:
+    app._tooltips = []
+    tooltip_targets: list[tuple[str, tuple[tk.Widget, ...]]] = [
+        ("tooltip_auto_transcribe", (app.auto_transcribe_check,)),
+        ("tooltip_speaker_mic", (app.self_label_label, app.self_label_entry)),
+        ("tooltip_speaker_desktop", (app.other_label_label, app.other_label_entry)),
+        ("tooltip_library", (app.library_label, app.library_combo)),
+        ("tooltip_model", (app.model_label, app.model_combo)),
+        ("tooltip_device", (app.device_label, app.device_combo)),
+        ("tooltip_compute", (app.compute_label, app.compute_type_combo)),
+        ("tooltip_vad_filter", (app.vad_filter_check,)),
+        ("tooltip_include_timestamps", (app.include_timestamps_check,)),
+        ("tooltip_language", (app.language_label, app.language_combo)),
+        ("tooltip_beam", (app.beam_label, app.beam_spinbox)),
+    ]
+    for translation_key, widgets in tooltip_targets:
+        for widget in widgets:
+            app._tooltips.append(
+                HoverTooltip(widget, lambda key=translation_key: app._tr(key))
+            )
 
 
 def apply_localization(app, refresh_data: bool = False) -> None:
