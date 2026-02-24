@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="_Слой_1" data-name="Слой 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 952 952">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #0f1c2e;
+      }
+
+      .cls-2 {
+        filter: url(#softShadow);
+      }
+
+      .cls-3 {
+        filter: url(#tinyShadow-3);
+      }
+
+      .cls-4 {
+        opacity: .5;
+      }
+
+      .cls-4, .cls-5 {
+        stroke: #fff;
+        stroke-linecap: round;
+      }
+
+      .cls-4, .cls-5, .cls-6 {
+        stroke-width: 8px;
+      }
+
+      .cls-4, .cls-5, .cls-6, .cls-7, .cls-8 {
+        fill: none;
+      }
+
+      .cls-9 {
+        fill: #fff;
+        isolation: isolate;
+        opacity: .95;
+      }
+
+      .cls-5 {
+        opacity: .75;
+      }
+
+      .cls-10 {
+        fill: #3498db;
+      }
+
+      .cls-6 {
+        stroke: rgba(0, 0, 0, .2);
+      }
+
+      .cls-11 {
+        filter: url(#tinyShadow-2);
+      }
+
+      .cls-7 {
+        stroke: rgba(255, 255, 255, .1);
+      }
+
+      .cls-7, .cls-8 {
+        stroke-width: 6px;
+      }
+
+      .cls-12 {
+        filter: url(#tinyShadow);
+      }
+
+      .cls-13 {
+        filter: url(#tinyShadow-5);
+      }
+
+      .cls-14 {
+        fill: #5b7898;
+      }
+
+      .cls-15 {
+        filter: url(#tinyShadow-4);
+      }
+
+      .cls-16 {
+        fill: url(#_Безымянный_градиент_2);
+      }
+
+      .cls-17 {
+        fill: #7f5a64;
+      }
+
+      .cls-8 {
+        stroke: #b8c6df;
+      }
+
+      .cls-18 {
+        fill: #f24e3c;
+      }
+
+      .cls-19 {
+        fill: url(#_Безымянный_градиент);
+      }
+
+      .cls-20 {
+        fill: url(#_Безымянный_градиент_3);
+      }
+
+      .cls-21 {
+        fill: #f4f7ff;
+        opacity: .92;
+      }
+    </style>
+    <radialGradient id="_Безымянный_градиент" data-name="Безымянный градиент" cx="220.01" cy="732.09" fx="220.01" fy="732.09" r=".85" gradientTransform="translate(-209184 697120) scale(952 -952)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f4a6a"/>
+      <stop offset=".55" stop-color="#1d3553"/>
+      <stop offset="1" stop-color="#132842"/>
+    </radialGradient>
+    <linearGradient id="_Безымянный_градиент_2" data-name="Безымянный градиент 2" x1="219.73" y1="732.27" x2="220.73" y2="731.27" gradientTransform="translate(-209184 697120) scale(952 -952)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".35"/>
+    </linearGradient>
+    <filter id="tinyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" result="b" stdDeviation="4"/>
+      <feOffset dx="0" dy="6" in="b" result="o"/>
+      <feColorMatrix in="o" result="s" values="0 0 0 0 0                 0 0 0 0 0                 0 0 0 0 0                 0 0 0 0.35 0"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="tinyShadow-2" data-name="tinyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" result="b" stdDeviation="4"/>
+      <feOffset dx="0" dy="6" in="b" result="o"/>
+      <feColorMatrix in="o" result="s" values="0 0 0 0 0                 0 0 0 0 0                 0 0 0 0 0                 0 0 0 0.35 0"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="tinyShadow-3" data-name="tinyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" result="b" stdDeviation="4"/>
+      <feOffset dx="0" dy="6" in="b" result="o"/>
+      <feColorMatrix in="o" result="s" values="0 0 0 0 0                 0 0 0 0 0                 0 0 0 0 0                 0 0 0 0.35 0"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="tinyShadow-4" data-name="tinyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" result="b" stdDeviation="4"/>
+      <feOffset dx="0" dy="6" in="b" result="o"/>
+      <feColorMatrix in="o" result="s" values="0 0 0 0 0                 0 0 0 0 0                 0 0 0 0 0                 0 0 0 0.35 0"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="tinyShadow-5" data-name="tinyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" result="b" stdDeviation="4"/>
+      <feOffset dx="0" dy="6" in="b" result="o"/>
+      <feColorMatrix in="o" result="s" values="0 0 0 0 0                 0 0 0 0 0                 0 0 0 0 0                 0 0 0 0.35 0"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" result="b" stdDeviation="10"/>
+      <feOffset dx="0" dy="12" in="b" result="o"/>
+      <feColorMatrix in="o" result="s" values="0 0 0 0 0                 0 0 0 0 0                 0 0 0 0 0                 0 0 0 0.35 0"/>
+      <feMerge>
+        <feMergeNode in="s"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <linearGradient id="_Безымянный_градиент_3" data-name="Безымянный градиент 3" x1="220.14" y1="732.5" x2="220.14" y2="731.5" gradientTransform="translate(-158028 395860) scale(720 -540)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#f1f6ff"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <rect class="cls-19" x="0" y="0" width="952" height="952" rx="210" ry="210"/>
+    <rect class="cls-16" x="0" y="0" width="952" height="952" rx="210" ry="210"/>
+    <rect class="cls-7" x="16" y="16" width="920" height="920" rx="196" ry="196"/>
+    <rect class="cls-6" x="8" y="8" width="936" height="936" rx="203" ry="203"/>
+  </g>
+  <g>
+    <g class="cls-12">
+      <circle class="cls-1" cx="124.03" cy="183.21" r="66"/>
+    </g>
+    <g class="cls-11">
+      <circle class="cls-1" cx="827.82" cy="183.21" r="66"/>
+    </g>
+    <g class="cls-3">
+      <path class="cls-9" d="M124.03,131.5h0c12.38,0,22.41,10.03,22.41,22.41v32.75c0,12.38-10.03,22.41-22.41,22.41h0c-12.38,0-22.41-10.03-22.41-22.41v-32.75c0-12.38,10.03-22.41,22.41-22.41Z"/>
+      <path class="cls-18" d="M124.03,138.4h0c8.57,0,15.51,6.95,15.51,15.51v18.96c0,8.57-6.95,15.51-15.51,15.51h0c-8.57,0-15.51-6.95-15.51-15.51v-18.96c0-8.57,6.95-15.51,15.51-15.51Z"/>
+      <path class="cls-9" d="M124.03,207.35h0c4.28,0,7.76,3.47,7.76,7.76h0c0,4.28-3.47,7.76-7.76,7.76h0c-4.28,0-7.76-3.47-7.76-7.76h0c0-4.28,3.47-7.76,7.76-7.76Z"/>
+      <path class="cls-9" d="M101.62,221.14h44.82c3.81,0,6.89,3.09,6.89,6.89h0c0,3.81-3.09,6.89-6.89,6.89h-44.82c-3.81,0-6.89-3.09-6.89-6.89h0c0-3.81,3.09-6.89,6.89-6.89Z"/>
+    </g>
+    <g class="cls-15">
+      <path class="cls-9" d="M780.18,165.21h20l24-22v80l-24-22h-20v-36Z"/>
+      <path class="cls-10" d="M788.18,173.21h12l16-16v52l-16-16h-12v-20Z"/>
+      <path class="cls-5" d="M838.18,157.21c14.36,8.27,19.3,26.61,11.03,40.97-2.64,4.59-6.45,8.39-11.03,11.03"/>
+      <path class="cls-4" d="M852.18,143.21c22.09,12.55,29.83,40.62,17.28,62.72-4.1,7.21-10.07,13.19-17.28,17.28"/>
+    </g>
+    <g class="cls-13">
+      <g>
+        <path class="cls-21" d="M243.93,156.21h0c2.21,0,4,1.79,4,4v46c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-46c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M259.93,146.21h0c2.21,0,4,1.79,4,4v66c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-66c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M275.93,138.21h0c2.21,0,4,1.79,4,4v82c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-82c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M291.93,134.21h0c2.21,0,4,1.79,4,4v90c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-90c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M307.93,138.21h0c2.21,0,4,1.79,4,4v82c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-82c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M323.93,148.21h0c2.21,0,4,1.79,4,4v62c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-62c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M339.93,158.21h0c2.21,0,4,1.79,4,4v42c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-42c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M355.93,164.21h0c2.21,0,4,1.79,4,4v30c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-30c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M371.93,162.21h0c2.21,0,4,1.79,4,4v34c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-34c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M387.93,160.21h0c2.21,0,4,1.79,4,4v38c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-38c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M403.93,158.21h0c2.21,0,4,1.79,4,4v42c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-42c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M419.93,156.21h0c2.21,0,4,1.79,4,4v46c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-46c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M435.93,154.21h0c2.21,0,4,1.79,4,4v50c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-50c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M451.93,152.21h0c2.21,0,4,1.79,4,4v54c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-54c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M467.93,150.21h0c2.21,0,4,1.79,4,4v58c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-58c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M483.93,150.21h0c2.21,0,4,1.79,4,4v58c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-58c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M499.93,152.21h0c2.21,0,4,1.79,4,4v54c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-54c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M515.93,154.21h0c2.21,0,4,1.79,4,4v50c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-50c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M531.93,156.21h0c2.21,0,4,1.79,4,4v46c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-46c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M547.93,158.21h0c2.21,0,4,1.79,4,4v42c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-42c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M563.93,160.21h0c2.21,0,4,1.79,4,4v38c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-38c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M579.93,162.21h0c2.21,0,4,1.79,4,4v34c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-34c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M595.93,164.21h0c2.21,0,4,1.79,4,4v30c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-30c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M611.93,162.21h0c2.21,0,4,1.79,4,4v34c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-34c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M627.93,158.21h0c2.21,0,4,1.79,4,4v42c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-42c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M643.93,152.21h0c2.21,0,4,1.79,4,4v54c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-54c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M659.93,144.21h0c2.21,0,4,1.79,4,4v70c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-70c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M675.93,138.21h0c2.21,0,4,1.79,4,4v82c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-82c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M691.93,146.21h0c2.21,0,4,1.79,4,4v66c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-66c0-2.21,1.79-4,4-4Z"/>
+        <path class="cls-21" d="M707.93,158.21h0c2.21,0,4,1.79,4,4v42c0,2.21-1.79,4-4,4h0c-2.21,0-4-1.79-4-4v-42c0-2.21,1.79-4,4-4Z"/>
+      </g>
+    </g>
+  </g>
+  <g class="cls-2">
+    <rect class="cls-20" x="116" y="308" width="720" height="540" rx="60" ry="60"/>
+    <rect class="cls-8" x="130" y="322" width="692" height="512" rx="52" ry="52"/>
+    <g>
+      <path class="cls-18" d="M175,365h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-17" d="M239,365h412c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-18" d="M175,411h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-17" d="M239,411h362c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-10" d="M175,457h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-14" d="M239,457h302c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-18" d="M175,503h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-17" d="M239,503h392c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-18" d="M175,549h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-17" d="M239,549h332c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-10" d="M175,595h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-14" d="M239,595h372c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-10" d="M175,641h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-14" d="M239,641h402c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-10" d="M175,687h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-14" d="M239,687h312c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-18" d="M175,733h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-17" d="M239,733h342c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-10" d="M175,779h24c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9h-24c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+      <path class="cls-14" d="M239,779h282c4.97,0,9,4.03,9,9h0c0,4.97-4.03,9-9,9H239c-4.97,0-9-4.03-9-9h0c0-4.97,4.03-9,9-9Z"/>
+    </g>
+  </g>
+</svg>

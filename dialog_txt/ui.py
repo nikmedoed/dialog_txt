@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import queue
 import shutil
@@ -72,15 +73,31 @@ DESKTOP_SOURCE_NAME_HINTS = (
 )
 
 
+def _set_windows_app_user_model_id(app_id: str = "DialogTxt.App") -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        shell32 = ctypes.windll.shell32
+        shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [ctypes.c_wchar_p]
+        shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.c_long
+        shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
+
+
 class App(tk.Tk):
     SYSTEM_MICROPHONE_SETTING = "__system_default__"
 
     def __init__(self):
+        _set_windows_app_user_model_id()
         super().__init__()
+        self._icon_image = None
+        self._win32_icon_handles: list[int] = []
         self.title("Dialog to TXT")
         self.geometry("620x760")
         self.minsize(560, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._apply_window_icon()
 
         ensure_recordings_root()
 
@@ -137,6 +154,176 @@ class App(tk.Tk):
         self._start_idle_level_monitor()
         self.after(250, self._tick_level_meter)
         self.after(150, self._poll_events)
+
+    def _apply_window_icon(self) -> None:
+        icon_ico_path, icon_png_path = self._resolve_icon_paths()
+
+        if sys.platform.startswith("win") and icon_ico_path is not None:
+            try:
+                self.iconbitmap(default=str(icon_ico_path))
+            except tk.TclError:
+                pass
+            # Apply explicit small/big icons to avoid Windows sticking to 16px resource.
+            self.after(0, lambda p=icon_ico_path: self._apply_win32_icon_handles(p))
+            # Some Tk builds create/re-parent the native window after idle; re-apply once.
+            self.after(250, lambda p=icon_ico_path: self._apply_win32_icon_handles(p))
+            return
+
+        # Keep PhotoImage reference to avoid garbage collection.
+        self._icon_image = None
+        photo_candidates = [candidate for candidate in (icon_png_path, icon_ico_path) if candidate]
+        for candidate in photo_candidates:
+            try:
+                self._icon_image = tk.PhotoImage(file=str(candidate))
+                self.iconphoto(True, self._icon_image)
+                break
+            except tk.TclError:
+                self._icon_image = None
+
+    @staticmethod
+    def _first_existing(candidates: list[Path]) -> Path | None:
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _apply_win32_icon_handles(self, icon_ico_path: Path) -> None:
+        if not sys.platform.startswith("win"):
+            return
+        try:
+            user32 = ctypes.windll.user32
+            user32.LoadImageW.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_wchar_p,
+                ctypes.c_uint,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_uint,
+            ]
+            user32.LoadImageW.restype = ctypes.c_void_p
+            user32.SendMessageW.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_uint,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+            ]
+            user32.SendMessageW.restype = ctypes.c_void_p
+            user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+            user32.GetSystemMetrics.restype = ctypes.c_int
+            user32.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+            user32.GetAncestor.restype = ctypes.c_void_p
+
+            set_class_icon = getattr(user32, "SetClassLongPtrW", None)
+            if set_class_icon is None:
+                set_class_icon = getattr(user32, "SetClassLongW", None)
+            if set_class_icon is not None:
+                set_class_icon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+                set_class_icon.restype = ctypes.c_void_p
+
+            hwnd = ctypes.c_void_p(self.winfo_id())
+            if not hwnd.value:
+                return
+            GA_ROOT = 2
+            root_hwnd_value = user32.GetAncestor(hwnd, GA_ROOT)
+            root_hwnd = ctypes.c_void_p(root_hwnd_value) if root_hwnd_value else hwnd
+
+            IMAGE_ICON = 1
+            LR_LOADFROMFILE = 0x00000010
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+            GCLP_HICON = -14
+            GCLP_HICONSM = -34
+            SM_CXICON = 11
+            SM_CYICON = 12
+            SM_CXSMICON = 49
+            SM_CYSMICON = 50
+
+            big_w = max(32, int(user32.GetSystemMetrics(SM_CXICON) or 32))
+            big_h = max(32, int(user32.GetSystemMetrics(SM_CYICON) or 32))
+            small_w = max(16, int(user32.GetSystemMetrics(SM_CXSMICON) or 16))
+            small_h = max(16, int(user32.GetSystemMetrics(SM_CYSMICON) or 16))
+
+            hicon_big = user32.LoadImageW(
+                None,
+                str(icon_ico_path),
+                IMAGE_ICON,
+                big_w,
+                big_h,
+                LR_LOADFROMFILE,
+            )
+            hicon_small = user32.LoadImageW(
+                None,
+                str(icon_ico_path),
+                IMAGE_ICON,
+                small_w,
+                small_h,
+                LR_LOADFROMFILE,
+            )
+
+            if hicon_big:
+                user32.SendMessageW(root_hwnd, WM_SETICON, ctypes.c_void_p(ICON_BIG), hicon_big)
+                if hwnd.value != root_hwnd.value:
+                    user32.SendMessageW(hwnd, WM_SETICON, ctypes.c_void_p(ICON_BIG), hicon_big)
+                if set_class_icon is not None:
+                    set_class_icon(root_hwnd, GCLP_HICON, hicon_big)
+                self._win32_icon_handles.append(int(hicon_big))
+            if hicon_small:
+                user32.SendMessageW(root_hwnd, WM_SETICON, ctypes.c_void_p(ICON_SMALL), hicon_small)
+                if hwnd.value != root_hwnd.value:
+                    user32.SendMessageW(hwnd, WM_SETICON, ctypes.c_void_p(ICON_SMALL), hicon_small)
+                if set_class_icon is not None:
+                    set_class_icon(root_hwnd, GCLP_HICONSM, hicon_small)
+                self._win32_icon_handles.append(int(hicon_small))
+        except Exception:
+            return
+
+    def _release_win32_icon_handles(self) -> None:
+        if not self._win32_icon_handles or not sys.platform.startswith("win"):
+            return
+        try:
+            user32 = ctypes.windll.user32
+            user32.DestroyIcon.argtypes = [ctypes.c_void_p]
+            user32.DestroyIcon.restype = ctypes.c_bool
+            for handle in self._win32_icon_handles:
+                if handle:
+                    user32.DestroyIcon(ctypes.c_void_p(handle))
+        except Exception:
+            pass
+        self._win32_icon_handles.clear()
+
+    def _resolve_icon_paths(self) -> tuple[Path | None, Path | None]:
+        ico_candidates: list[Path] = []
+        png_candidates: list[Path] = []
+        if getattr(sys, "frozen", False):
+            base_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+            ico_candidates.extend(
+                [
+                    base_dir / "icon.ico",
+                    base_dir / "docs" / "icon.ico",
+                ]
+            )
+            png_candidates.extend(
+                [
+                    base_dir / "icon.png",
+                    base_dir / "docs" / "icon.png",
+                ]
+            )
+
+        project_root = Path(__file__).resolve().parent.parent
+        ico_candidates.extend(
+            [
+                project_root / "docs" / "icon.ico",
+                project_root / "icon.ico",
+            ]
+        )
+        png_candidates.extend(
+            [
+                project_root / "docs" / "icon.png",
+                project_root / "icon.png",
+            ]
+        )
+        return self._first_existing(ico_candidates), self._first_existing(png_candidates)
 
     def _build_ui(self) -> None:
         build_ui(self)
@@ -1002,4 +1189,5 @@ class App(tk.Tk):
         if self.transcription_thread and self.transcription_thread.is_alive():
             self.cancel_transcription_event.set()
             self._log_event(self._tr("log_window_close_cancel"))
+        self._release_win32_icon_handles()
         self.destroy()
