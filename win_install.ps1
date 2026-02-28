@@ -39,7 +39,7 @@ function New-Shortcut {
         $shortcut.Description = $Description
     }
     if ($IconLocation -and (Test-Path $IconLocation)) {
-        $shortcut.IconLocation = $IconLocation
+        $shortcut.IconLocation = "$IconLocation,0"
     }
     $shortcut.Save()
 }
@@ -94,6 +94,16 @@ if ($profileText -match [regex]::Escape($begin)) {
 }
 Set-Content -Path $profilePath -Value $updated -Encoding UTF8
 Write-Host "PowerShell profile updated: $profilePath"
+
+try {
+    $ie4uinit = Join-Path $env:WINDIR "System32\ie4uinit.exe"
+    if (Test-Path $ie4uinit) {
+        Start-Process -FilePath $ie4uinit -ArgumentList "-show" -NoNewWindow -Wait
+        Write-Host "Shell icon cache refreshed."
+    }
+} catch {
+    Write-Warning "Could not refresh shell icon cache automatically."
+}
 
 Write-Host ""
 Write-Host "Installation complete."

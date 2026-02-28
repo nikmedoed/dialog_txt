@@ -10,9 +10,9 @@ import tkinter as tk
 def set_windows_app_user_model_id(app_id: str = "DialogTxt.App") -> None:
     if not sys.platform.startswith("win"):
         return
-    # For source/Python runs, explicit AppUserModelID can make taskbar prefer
-    # stale shortcut cache icon over WM_SETICON icons. Keep explicit AppID for
-    # frozen executables only.
+    # For source/pythonw launches, an explicit AppUserModelID can make the taskbar
+    # prefer the shortcut's cached shell icon instead of the live WM_SETICON handles.
+    # Keep the explicit AppID for frozen builds only, where the executable owns the icon.
     if not getattr(sys, "frozen", False):
         return
     try:
@@ -62,8 +62,6 @@ class WindowMixin:
     def _apply_win32_icon_handles(self, icon_ico_path: Path) -> None:
         if not sys.platform.startswith("win"):
             return
-        # Avoid handle leaks and stale icon handles when re-applying.
-        self._release_win32_icon_handles()
         try:
             user32 = ctypes.windll.user32
             user32.LoadImageW.argtypes = [
@@ -117,8 +115,11 @@ class WindowMixin:
             # Ask for a large source icon and let Windows downscale from a richer raster.
             big_w = max(256, int(user32.GetSystemMetrics(sm_cxicon) or 32))
             big_h = max(256, int(user32.GetSystemMetrics(sm_cyicon) or 32))
-            small_w = max(16, int(user32.GetSystemMetrics(sm_cxsmicon) or 16))
-            small_h = max(16, int(user32.GetSystemMetrics(sm_cysmicon) or 16))
+            # Ask for at least a 32px source for the "small" icon as well. Windows can
+            # scale that down for the caption area, but it avoids locking onto the
+            # softest 16px raster when rendering taskbar-adjacent surfaces.
+            small_w = max(32, int(user32.GetSystemMetrics(sm_cxsmicon) or 16))
+            small_h = max(32, int(user32.GetSystemMetrics(sm_cysmicon) or 16))
 
             hicon_big = user32.LoadImageW(
                 None,
@@ -137,6 +138,7 @@ class WindowMixin:
                 lr_loadfromfile,
             )
 
+            new_handles: list[int] = []
             if hicon_big:
                 user32.SendMessageW(root_hwnd, wm_seticon, ctypes.c_void_p(icon_big), hicon_big)
                 if hwnd.value != root_hwnd.value:
@@ -145,7 +147,7 @@ class WindowMixin:
                     set_class_icon(root_hwnd, gclp_hicon, hicon_big)
                     if hwnd.value != root_hwnd.value:
                         set_class_icon(hwnd, gclp_hicon, hicon_big)
-                self._win32_icon_handles.append(int(hicon_big))
+                new_handles.append(int(hicon_big))
             if hicon_small:
                 user32.SendMessageW(root_hwnd, wm_seticon, ctypes.c_void_p(icon_small), hicon_small)
                 user32.SendMessageW(root_hwnd, wm_seticon, ctypes.c_void_p(icon_small2), hicon_small)
@@ -156,23 +158,37 @@ class WindowMixin:
                     set_class_icon(root_hwnd, gclp_hiconsm, hicon_small)
                     if hwnd.value != root_hwnd.value:
                         set_class_icon(hwnd, gclp_hiconsm, hicon_small)
-                self._win32_icon_handles.append(int(hicon_small))
+                new_handles.append(int(hicon_small))
+
+            if not new_handles:
+                return
+
+            old_handles = self._win32_icon_handles
+            self._win32_icon_handles = new_handles
+            self._destroy_win32_icon_handles(old_handles)
         except Exception:
             return
 
     def _release_win32_icon_handles(self) -> None:
-        if not self._win32_icon_handles or not sys.platform.startswith("win"):
+        if not self._win32_icon_handles:
+            return
+        old_handles = self._win32_icon_handles
+        self._win32_icon_handles = []
+        self._destroy_win32_icon_handles(old_handles)
+
+    @staticmethod
+    def _destroy_win32_icon_handles(handles: list[int]) -> None:
+        if not handles or not sys.platform.startswith("win"):
             return
         try:
             user32 = ctypes.windll.user32
             user32.DestroyIcon.argtypes = [ctypes.c_void_p]
             user32.DestroyIcon.restype = ctypes.c_bool
-            for handle in self._win32_icon_handles:
+            for handle in handles:
                 if handle:
                     user32.DestroyIcon(ctypes.c_void_p(handle))
         except Exception:
             pass
-        self._win32_icon_handles.clear()
 
     def _resolve_icon_paths(self) -> tuple[Path | None, Path | None]:
         ico_candidates: list[Path] = []

@@ -10,7 +10,14 @@ from typing import Callable
 
 import soundfile as sf
 
-from .config import BLOCK_FRAMES, DESKTOP_FILE_NAME, MIC_FILE_NAME, MIX_FILE_NAME, SAMPLE_RATE
+from .config import (
+    AUDIO_WRITE_FLUSH_INTERVAL_SEC,
+    BLOCK_FRAMES,
+    DESKTOP_FILE_NAME,
+    MIC_FILE_NAME,
+    MIX_FILE_NAME,
+    SAMPLE_RATE,
+)
 from .models import RecordingError
 from .utils import to_mono
 
@@ -29,7 +36,9 @@ class DualTrackRecorder:
         self.level_callback = level_callback
         self.stop_event = threading.Event()
         self.error_queue: queue.Queue[Exception] = queue.Queue()
-        self.threads: list[threading.Thread] = []
+        self.capture_threads: list[threading.Thread] = []
+        self.mix_thread: threading.Thread | None = None
+        self.mix_queues: dict[str, queue.Queue] = {}
 
     @property
     def mic_path(self) -> Path:
@@ -45,7 +54,12 @@ class DualTrackRecorder:
 
     def start(self) -> None:
         self.stop_event.clear()
-        self.threads = [
+        self.error_queue = queue.Queue()
+        self.mix_queues = {
+            "microphone": queue.Queue(),
+            "desktop": queue.Queue(),
+        }
+        self.capture_threads = [
             threading.Thread(
                 target=self._capture_loop,
                 args=(self.mic, self.mic_path, "microphone"),
@@ -57,19 +71,18 @@ class DualTrackRecorder:
                 daemon=True,
             ),
         ]
-        for thread in self.threads:
+        self.mix_thread = threading.Thread(target=self._mix_loop, daemon=True)
+
+        for thread in self.capture_threads:
             thread.start()
+        self.mix_thread.start()
 
     def stop(self) -> None:
         self.stop_event.set()
-        for thread in self.threads:
+        for thread in self.capture_threads:
             thread.join()
-        if not self.error_queue.empty():
-            return
-        try:
-            self._write_mix()
-        except Exception as exc:
-            self.error_queue.put(RuntimeError(f"Mix render error: {exc}"))
+        if self.mix_thread is not None:
+            self.mix_thread.join()
 
     def raise_if_failed(self) -> None:
         errors: list[str] = []
@@ -79,6 +92,7 @@ class DualTrackRecorder:
             raise RecordingError("\n".join(errors))
 
     def _capture_loop(self, source, out_path: Path, source_name: str) -> None:
+        mix_queue = self.mix_queues[source_name]
         try:
             with source.recorder(samplerate=SAMPLE_RATE, blocksize=BLOCK_FRAMES) as rec:
                 with sf.SoundFile(
@@ -90,12 +104,17 @@ class DualTrackRecorder:
                     subtype="VORBIS",
                 ) as sound_file:
                     last_level_emit_at = 0.0
+                    last_flush_at = time.monotonic()
                     while not self.stop_event.is_set():
                         chunk = rec.record(numframes=BLOCK_FRAMES)
                         mono = to_mono(chunk)
                         sound_file.write(mono)
+                        mix_queue.put(mono.copy())
+                        now = time.monotonic()
+                        if now - last_flush_at >= AUDIO_WRITE_FLUSH_INTERVAL_SEC:
+                            sound_file.flush()
+                            last_flush_at = now
                         if self.level_callback:
-                            now = time.monotonic()
                             if now - last_level_emit_at >= 0.12:
                                 level = self._estimate_level(mono)
                                 self.level_callback(source_name, level)
@@ -103,42 +122,44 @@ class DualTrackRecorder:
         except Exception as exc:  # pragma: no cover - device-specific failures
             self.stop_event.set()
             self.error_queue.put(RuntimeError(f"Capture error ({source_name}): {exc}"))
+        finally:
+            mix_queue.put(None)
 
-    def _write_mix(self) -> None:
-        if not self.mic_path.exists() or not self.desktop_path.exists():
-            return
+    def _mix_loop(self) -> None:
+        mic_queue = self.mix_queues["microphone"]
+        desktop_queue = self.mix_queues["desktop"]
+        try:
+            with sf.SoundFile(
+                str(self.mix_path),
+                mode="w",
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                format="OGG",
+                subtype="VORBIS",
+            ) as out_file:
+                last_flush_at = time.monotonic()
+                while True:
+                    mic_chunk = mic_queue.get()
+                    desktop_chunk = desktop_queue.get()
+                    if mic_chunk is None or desktop_chunk is None:
+                        break
 
-        with sf.SoundFile(str(self.mic_path), mode="r") as mic_file:
-            with sf.SoundFile(str(self.desktop_path), mode="r") as desktop_file:
-                if mic_file.samplerate != SAMPLE_RATE or desktop_file.samplerate != SAMPLE_RATE:
-                    raise RuntimeError(
-                        "Unexpected sample rate "
-                        f"(mic={mic_file.samplerate}, desktop={desktop_file.samplerate})"
-                    )
+                    frames = min(len(mic_chunk), len(desktop_chunk))
+                    if frames <= 0:
+                        continue
 
-                with sf.SoundFile(
-                    str(self.mix_path),
-                    mode="w",
-                    samplerate=SAMPLE_RATE,
-                    channels=1,
-                    format="OGG",
-                    subtype="VORBIS",
-                ) as out_file:
-                    while True:
-                        mic_chunk = mic_file.read(BLOCK_FRAMES, dtype="float32", always_2d=False)
-                        desktop_chunk = desktop_file.read(
-                            BLOCK_FRAMES, dtype="float32", always_2d=False
-                        )
-                        mic_mono = to_mono(mic_chunk)
-                        desktop_mono = to_mono(desktop_chunk)
-                        frames = min(len(mic_mono), len(desktop_mono))
-                        if frames <= 0:
-                            break
+                    mix = (mic_chunk[:frames] + desktop_chunk[:frames]) * 0.5
+                    # Hard-clip overs to keep export stable and avoid NaN/inf propagation.
+                    mix = mix.clip(-1.0, 1.0)
+                    out_file.write(mix)
 
-                        mix = (mic_mono[:frames] + desktop_mono[:frames]) * 0.5
-                        # Hard-clip overs to keep export stable and avoid NaN/inf propagation.
-                        mix = mix.clip(-1.0, 1.0)
-                        out_file.write(mix)
+                    now = time.monotonic()
+                    if now - last_flush_at >= AUDIO_WRITE_FLUSH_INTERVAL_SEC:
+                        out_file.flush()
+                        last_flush_at = now
+        except Exception as exc:  # pragma: no cover - codec/filesystem failures
+            self.stop_event.set()
+            self.error_queue.put(RuntimeError(f"Mix render error: {exc}"))
 
     @staticmethod
     def _estimate_level(samples) -> float:

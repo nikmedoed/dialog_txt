@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 from ..storage import (
     discover_sessions,
@@ -21,6 +21,7 @@ from ..utils import format_seconds
 
 class RecordingsMixin:
     def _refresh_recordings(self) -> None:
+        self._close_recording_alias_editor(commit=True)
         for row in self.recordings_tree.get_children():
             self.recordings_tree.delete(row)
 
@@ -28,13 +29,13 @@ class RecordingsMixin:
         for session_dir in sessions:
             audio_status, txt_status = self._session_status(session_dir)
             display_name = session_title(session_dir)
-            folder_name = session_dir.name
+            short_name = self._session_alias(session_dir)
             duration_text = self._session_duration_text(session_dir)
             self.recordings_tree.insert(
                 "",
                 tk.END,
                 iid=str(session_dir),
-                values=(display_name, folder_name, duration_text, audio_status, txt_status),
+                values=(display_name, short_name, duration_text, audio_status, txt_status),
             )
         if sessions and not self.recordings_tree.selection():
             self.recordings_tree.selection_set(str(sessions[0]))
@@ -70,11 +71,20 @@ class RecordingsMixin:
         if not (self.transcription_thread and self.transcription_thread.is_alive()):
             self.transcribe_selected_button.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
 
-    def _on_recording_double_click(self, _event=None) -> None:
+    def _on_recording_double_click(self, event=None) -> str:
+        if event is not None and self._begin_recording_alias_edit_from_event(event):
+            return "break"
         self._open_selected_folder()
+        return "break"
 
     def _on_recording_delete_key(self, _event=None) -> str:
         self._delete_selected_recordings()
+        return "break"
+
+    def _on_recording_rename_key(self, _event=None) -> str:
+        session = self._selected_session()
+        if session:
+            self._begin_recording_alias_edit(session)
         return "break"
 
     def _selected_session(self) -> Path | None:
@@ -97,6 +107,7 @@ class RecordingsMixin:
         self._open_path_in_file_manager(session)
 
     def _delete_selected_recordings(self) -> None:
+        self._close_recording_alias_editor(commit=True)
         if self.transcription_thread and self.transcription_thread.is_alive():
             messagebox.showwarning(
                 self._tr("title_busy"),
@@ -131,15 +142,20 @@ class RecordingsMixin:
             return
 
         deleted_count = 0
+        aliases_changed = False
         errors: list[str] = []
         for session in sessions:
             try:
                 shutil.rmtree(session)
                 deleted_count += 1
+                if self.session_aliases.pop(session.name, None) is not None:
+                    aliases_changed = True
                 self._log_event(self._tr("log_recording_deleted", path=session))
             except Exception as exc:
                 errors.append(self._tr("log_recording_delete_error", path=session, error=exc))
 
+        if aliases_changed:
+            self._save_app_settings()
         if deleted_count:
             self._set_status(self._tr("status_recordings_deleted", count=deleted_count))
         for error_line in errors:
@@ -168,6 +184,105 @@ class RecordingsMixin:
                 self._tr("title_open_folder"),
                 self._tr("msg_open_folder_failed", path=path, error=exc),
             )
+
+    def _session_alias(self, session_dir: Path) -> str:
+        return " ".join(str(self.session_aliases.get(session_dir.name, "")).split())
+
+    def _recordings_tree_column_id(self, column_name: str) -> str | None:
+        columns = tuple(self.recordings_tree["columns"])
+        try:
+            return f"#{columns.index(column_name) + 1}"
+        except ValueError:
+            return None
+
+    def _begin_recording_alias_edit_from_event(self, event) -> bool:
+        column_id = self.recordings_tree.identify_column(event.x)
+        row_id = self.recordings_tree.identify_row(event.y)
+        alias_column_id = self._recordings_tree_column_id("short_name")
+        if not row_id or column_id != alias_column_id:
+            return False
+        self.recordings_tree.selection_set(row_id)
+        self.recordings_tree.focus(row_id)
+        return self._begin_recording_alias_edit(Path(row_id))
+
+    def _begin_recording_alias_edit(self, session_dir: Path) -> bool:
+        session_id = str(session_dir)
+        if not self.recordings_tree.exists(session_id):
+            return False
+
+        self._close_recording_alias_editor(commit=True)
+        self.recordings_tree.see(session_id)
+        bbox = self.recordings_tree.bbox(session_id, "short_name")
+        if not bbox:
+            return False
+
+        x, y, width, height = bbox
+        if width <= 1 or height <= 1:
+            return False
+
+        original_value = self._session_alias(session_dir)
+        editor = ttk.Entry(self.recordings_tree)
+        editor.insert(0, original_value)
+        editor.place(x=x, y=y, width=width, height=height)
+        editor.focus_set()
+        editor.select_range(0, tk.END)
+        editor.bind("<Return>", self._submit_recording_alias_edit)
+        editor.bind("<KP_Enter>", self._submit_recording_alias_edit)
+        editor.bind("<Escape>", self._cancel_recording_alias_edit)
+        editor.bind("<FocusOut>", self._commit_recording_alias_on_focus_out)
+
+        self.recording_alias_editor = editor
+        self.recording_alias_session = session_dir
+        self.recording_alias_original_value = original_value
+        return True
+
+    def _submit_recording_alias_edit(self, _event=None) -> str:
+        self._close_recording_alias_editor(commit=True)
+        return "break"
+
+    def _cancel_recording_alias_edit(self, _event=None) -> str:
+        self._close_recording_alias_editor(commit=False)
+        return "break"
+
+    def _commit_recording_alias_on_focus_out(self, _event=None) -> None:
+        self._close_recording_alias_editor(commit=True)
+
+    def _close_recording_alias_editor(self, commit: bool) -> None:
+        editor = self.recording_alias_editor
+        session = self.recording_alias_session
+        original_value = self.recording_alias_original_value
+        if editor is None:
+            return
+
+        self.recording_alias_editor = None
+        self.recording_alias_session = None
+        self.recording_alias_original_value = ""
+
+        new_value = original_value
+        if commit and editor.winfo_exists():
+            new_value = " ".join(editor.get().split())
+
+        if editor.winfo_exists():
+            editor.destroy()
+
+        if commit and session is not None and new_value != original_value:
+            self._set_session_alias(session, new_value)
+
+    def _set_session_alias(self, session_dir: Path, alias: str) -> None:
+        normalized_alias = " ".join(alias.split())
+        if normalized_alias:
+            self.session_aliases[session_dir.name] = normalized_alias
+        else:
+            self.session_aliases.pop(session_dir.name, None)
+
+        item_id = str(session_dir)
+        if self.recordings_tree.exists(item_id):
+            values = list(self.recordings_tree.item(item_id, "values"))
+            if len(values) >= 2:
+                values[1] = normalized_alias
+                self.recordings_tree.item(item_id, values=values)
+
+        self._save_app_settings()
 
     @staticmethod
     def _session_audio_ready(session_dir: Path) -> bool:

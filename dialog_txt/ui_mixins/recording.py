@@ -53,8 +53,6 @@ class RecordingMixin:
             created_at=created_at,
             mic_name=mic.name,
             desktop_source=self._sound_device_name(speaker),
-            speaker_self=self_label,
-            speaker_other=other_label,
         )
         self._save_app_settings()
 

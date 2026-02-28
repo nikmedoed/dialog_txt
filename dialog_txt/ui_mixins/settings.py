@@ -240,15 +240,19 @@ class SettingsMixin:
             compute_type = DEFAULT_COMPUTE_TYPE
             self.compute_type_var.set(compute_type)
 
+        self_label, other_label = self._current_speaker_labels()
         return TranscriptionOptions(
             transcription_library=transcription_library,
             model_name=model_name,
             device=device,
             language=language,
+            speaker_self=self_label,
+            speaker_other=other_label,
             beam_size=beam_size,
             vad_filter=bool(self.vad_filter_var.get()),
             compute_type=compute_type,
             include_timestamps=bool(self.include_timestamps_var.get()),
+            transcribe_mix_track=bool(self.transcribe_mix_track_var.get()),
         )
 
     def _save_app_settings(self) -> None:
@@ -273,6 +277,8 @@ class SettingsMixin:
             "whisper_vad_filter": options.vad_filter,
             "whisper_compute_type": options.compute_type,
             "include_timestamps": options.include_timestamps,
+            "transcribe_mix_track": options.transcribe_mix_track,
             "ui_language": self.ui_language,
+            "session_aliases": dict(getattr(self, "session_aliases", {})),
         }
         save_app_settings(self.app_settings)

@@ -6,14 +6,13 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import (
-    DEFAULT_OTHER_LABEL,
-    DEFAULT_SELF_LABEL,
     DESKTOP_FILE_NAME,
+    DESKTOP_TRANSCRIPT_FILE_NAME,
     METADATA_FILE_NAME,
-    MIX_FILE_NAME,
     MIC_FILE_NAME,
+    MIC_TRANSCRIPT_FILE_NAME,
+    MIX_TRANSCRIPT_FILE_NAME,
     RECORDINGS_ROOT,
-    SAMPLE_RATE,
     TRANSCRIPT_FILE_NAME,
 )
 
@@ -41,24 +40,11 @@ def write_initial_metadata(
     created_at: datetime,
     mic_name: str,
     desktop_source: str,
-    speaker_self: str,
-    speaker_other: str,
 ) -> None:
     payload = {
         "created_at": created_at.isoformat(timespec="seconds"),
-        "sample_rate": SAMPLE_RATE,
         "mic_name": mic_name,
         "desktop_source": desktop_source,
-        "speakers": {
-            "self": speaker_self,
-            "other": speaker_other,
-        },
-        "files": {
-            "mic": MIC_FILE_NAME,
-            "desktop": DESKTOP_FILE_NAME,
-            "mix": MIX_FILE_NAME,
-            "transcript": TRANSCRIPT_FILE_NAME,
-        },
     }
     (session_dir / METADATA_FILE_NAME).write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -165,6 +151,19 @@ def transcript_path(session_dir: Path) -> Path:
     return session_dir / TRANSCRIPT_FILE_NAME
 
 
+def debug_transcript_path(session_dir: Path, transcript_kind: str) -> Path:
+    mapping = {
+        "mic": MIC_TRANSCRIPT_FILE_NAME,
+        "desktop": DESKTOP_TRANSCRIPT_FILE_NAME,
+        "mix": MIX_TRANSCRIPT_FILE_NAME,
+    }
+    try:
+        file_name = mapping[transcript_kind]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported transcript kind: {transcript_kind}") from exc
+    return session_dir / file_name
+
+
 def read_session_metadata(session_dir: Path) -> dict:
     meta_path = session_dir / METADATA_FILE_NAME
     if not meta_path.exists():
@@ -176,20 +175,15 @@ def read_session_metadata(session_dir: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def session_speaker_labels(session_dir: Path) -> tuple[str, str]:
-    payload = read_session_metadata(session_dir)
-    speakers = payload.get("speakers", {}) if isinstance(payload.get("speakers", {}), dict) else {}
-
-    self_label = " ".join(str(speakers.get("self", "")).split()) or DEFAULT_SELF_LABEL
-    other_label = " ".join(str(speakers.get("other", "")).split()) or DEFAULT_OTHER_LABEL
-    return self_label, other_label
-
-
 def discover_sessions() -> list[Path]:
     if not RECORDINGS_ROOT.exists():
         return []
 
-    result = [child for child in RECORDINGS_ROOT.iterdir() if is_session_dir(child)]
+    result = [
+        child
+        for child in RECORDINGS_ROOT.iterdir()
+        if not child.name.startswith("_") and is_session_dir(child)
+    ]
     result.sort(reverse=True)
     return result
 

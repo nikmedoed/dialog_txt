@@ -22,7 +22,9 @@ DEFAULT_VAD_FILTER = True
 DEFAULT_COMPUTE_TYPE = "float16"
 DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD = True
 DEFAULT_INCLUDE_TIMESTAMPS = False
+DEFAULT_TRANSCRIBE_MIX_TRACK = False
 DEFAULT_UI_LANGUAGE = "ru"
+DEFAULT_SESSION_ALIASES: dict[str, str] = {}
 
 ALLOWED_COMPUTE_TYPES = ("float16", "int8_float16", "int8")
 ALLOWED_UI_LANGUAGES = ("ru", "en")
@@ -42,7 +44,9 @@ def _default_settings() -> dict:
         "whisper_vad_filter": DEFAULT_VAD_FILTER,
         "whisper_compute_type": DEFAULT_COMPUTE_TYPE,
         "include_timestamps": DEFAULT_INCLUDE_TIMESTAMPS,
+        "transcribe_mix_track": DEFAULT_TRANSCRIBE_MIX_TRACK,
         "ui_language": DEFAULT_UI_LANGUAGE,
+        "session_aliases": dict(DEFAULT_SESSION_ALIASES),
     }
 
 
@@ -69,6 +73,20 @@ def _normalize_int(value, fallback: int, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError):
         return fallback
     return max(minimum, min(maximum, parsed))
+
+
+def _normalize_session_aliases(value) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+
+    result: dict[str, str] = {}
+    for key, alias in value.items():
+        session_name = str(key).strip()
+        normalized_alias = " ".join(str(alias).split())
+        if not session_name or not normalized_alias:
+            continue
+        result[session_name] = normalized_alias
+    return result
 
 
 def _sanitize_settings(raw: dict | None) -> dict:
@@ -124,7 +142,14 @@ def _sanitize_settings(raw: dict | None) -> dict:
             payload.get("include_timestamps", DEFAULT_INCLUDE_TIMESTAMPS),
             DEFAULT_INCLUDE_TIMESTAMPS,
         ),
+        "transcribe_mix_track": _normalize_bool(
+            payload.get("transcribe_mix_track", DEFAULT_TRANSCRIBE_MIX_TRACK),
+            DEFAULT_TRANSCRIBE_MIX_TRACK,
+        ),
         "ui_language": ui_language,
+        "session_aliases": _normalize_session_aliases(
+            payload.get("session_aliases", DEFAULT_SESSION_ALIASES)
+        ),
     }
 
 

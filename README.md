@@ -99,9 +99,9 @@ Main options:
   - for `faster-whisper`: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`
   - for `whisper`: `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large(-v1/-v2/-v3)`, `turbo`
 - `whisper_device` (`auto`, `cpu`, `gpu`)
-- `whisper_language` (`ru`, `en`, `auto`, etc.)
+- `whisper_language` (`ru`, `en`, `auto`, etc.; `auto` is detected once per session, then fixed for all utterances)
 - `whisper_beam_size` (1..10)
-- `whisper_vad_filter` (`true/false`)
+- `whisper_vad_filter` (`true/false`, enables stricter low-energy post-filtering; base speech-interval gating is always on)
 - `whisper_compute_type` (`float16`, `int8_float16`, `int8`, applies to `faster-whisper`)
 - `include_timestamps` (`true/false`, default `false`)
 
@@ -234,9 +234,9 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
   - для `faster-whisper`: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`
   - для `whisper`: `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large(-v1/-v2/-v3)`, `turbo`
 - `whisper_device` (`auto`, `cpu`, `gpu`)
-- `whisper_language` (`ru`, `en`, `auto` и др.)
+- `whisper_language` (`ru`, `en`, `auto` и др.; при `auto` язык определяется один раз на сессию и фиксируется для всех реплик)
 - `whisper_beam_size` (1..10)
-- `whisper_vad_filter` (`true/false`)
+- `whisper_vad_filter` (`true/false`, включает более строгую фильтрацию низкоэнергетических фрагментов; базовое выделение речевых интервалов работает всегда)
 - `whisper_compute_type` (`float16`, `int8_float16`, `int8`, используется для `faster-whisper`)
 - `include_timestamps` (`true/false`, по умолчанию `false`)
 

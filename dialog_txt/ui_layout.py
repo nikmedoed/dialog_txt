@@ -247,17 +247,23 @@ def build_ui(app) -> None:
         variable=app.include_timestamps_var,
     )
     app.include_timestamps_check.grid(row=0, column=1, sticky=tk.W, padx=(0, 8))
+    app.transcribe_mix_track_check = ttk.Checkbutton(
+        options_row,
+        text=app._tr("transcribe_mix_track"),
+        variable=app.transcribe_mix_track_var,
+    )
+    app.transcribe_mix_track_check.grid(row=0, column=2, sticky=tk.W, padx=(0, 8))
     app.language_label = ttk.Label(options_row, text=app._tr("label_language"))
-    app.language_label.grid(row=0, column=2, sticky=tk.W)
+    app.language_label.grid(row=0, column=3, sticky=tk.W)
     app.language_combo = ttk.Combobox(
         options_row,
         width=5,
         values=["ru", "en", "auto"],
         textvariable=app.language_var,
     )
-    app.language_combo.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
+    app.language_combo.grid(row=0, column=4, sticky=tk.W, padx=(3, 8))
     app.beam_label = ttk.Label(options_row, text=app._tr("label_beam"))
-    app.beam_label.grid(row=0, column=4, sticky=tk.W)
+    app.beam_label.grid(row=0, column=5, sticky=tk.W)
     app.beam_spinbox = ttk.Spinbox(
         options_row,
         from_=1,
@@ -265,7 +271,7 @@ def build_ui(app) -> None:
         width=4,
         textvariable=app.beam_size_var,
     )
-    app.beam_spinbox.grid(row=0, column=5, sticky=tk.W)
+    app.beam_spinbox.grid(row=0, column=6, sticky=tk.W)
 
     app.progress_label_title = ttk.Label(app.transcribe_box, text=app._tr("label_progress"))
     app.progress_label_title.grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
@@ -312,15 +318,15 @@ def build_ui(app) -> None:
     )
     app.delete_selected_button.grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
 
-    columns = ("session", "folder", "duration", "audio", "txt")
+    columns = ("session", "short_name", "duration", "audio", "txt")
     app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns, show="headings")
     app.recordings_tree.heading("session", text=app._tr("col_session"))
-    app.recordings_tree.heading("folder", text=app._tr("col_folder"))
+    app.recordings_tree.heading("short_name", text=app._tr("col_short_name"))
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
-    app.recordings_tree.column("session", width=180, anchor=tk.W, stretch=True)
-    app.recordings_tree.column("folder", width=180, anchor=tk.W, stretch=True)
+    app.recordings_tree.column("session", width=132, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("short_name", width=185, anchor=tk.W, stretch=True)
     app.recordings_tree.column("duration", width=100, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("audio", width=72, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("txt", width=48, anchor=tk.CENTER, stretch=False)
@@ -328,6 +334,7 @@ def build_ui(app) -> None:
     app.recordings_tree.bind("<<TreeviewSelect>>", app._on_recording_selected)
     app.recordings_tree.bind("<Double-1>", app._on_recording_double_click)
     app.recordings_tree.bind("<Delete>", app._on_recording_delete_key)
+    app.recordings_tree.bind("<F2>", app._on_recording_rename_key)
 
     app.log_box = ttk.LabelFrame(top, text=app._tr("group_log"), padding=6)
     app.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
@@ -348,6 +355,7 @@ def _install_settings_tooltips(app) -> None:
         ("tooltip_compute", (app.compute_label, app.compute_type_combo)),
         ("tooltip_vad_filter", (app.vad_filter_check,)),
         ("tooltip_include_timestamps", (app.include_timestamps_check,)),
+        ("tooltip_transcribe_mix_track", (app.transcribe_mix_track_check,)),
         ("tooltip_language", (app.language_label, app.language_combo)),
         ("tooltip_beam", (app.beam_label, app.beam_spinbox)),
     ]
@@ -369,6 +377,7 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.self_label_label.configure(text=app._tr("label_speaker_mic"))
     app.other_label_label.configure(text=app._tr("label_speaker_desktop"))
     app.include_timestamps_check.configure(text=app._tr("include_timestamps"))
+    app.transcribe_mix_track_check.configure(text=app._tr("transcribe_mix_track"))
     app.library_label.configure(text=app._tr("label_library"))
     app.device_label.configure(text=app._tr("label_device"))
     app.model_label.configure(text=app._tr("label_model"))
@@ -384,7 +393,7 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.open_folder_button.configure(text=app._tr("btn_open_folder"))
     app.delete_selected_button.configure(text=app._tr("btn_delete_selected"))
     app.recordings_tree.heading("session", text=app._tr("col_session"))
-    app.recordings_tree.heading("folder", text=app._tr("col_folder"))
+    app.recordings_tree.heading("short_name", text=app._tr("col_short_name"))
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
@@ -438,6 +447,7 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     app.vad_filter_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.compute_type_combo.configure(state=tk.DISABLED if is_running else "readonly")
     app.include_timestamps_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+    app.transcribe_mix_track_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.cancel_transcribe_button.configure(state=tk.NORMAL if is_running else tk.DISABLED)
     session = app._selected_session()
     app.refresh_recordings_button.configure(state=tk.NORMAL)
