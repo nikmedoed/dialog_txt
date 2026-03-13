@@ -2,12 +2,6 @@
 setlocal
 pushd "%~dp0"
 
-if "%DIALOG_TXT_HOME%"=="" (
-    if not "%LOCALAPPDATA%"=="" (
-        set "DIALOG_TXT_HOME=%LOCALAPPDATA%\DialogToTXT"
-    )
-)
-
 if not "%DIALOG_TXT_HOME%"=="" (
     if not exist "%DIALOG_TXT_HOME%" mkdir "%DIALOG_TXT_HOME%" >nul 2>&1
 )

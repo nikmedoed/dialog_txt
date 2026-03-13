@@ -74,10 +74,10 @@ class App(
         self.status_text = self._tr("status_idle")
         self.last_progress_log_bucket = -1
         self.settings_save_after_id: str | None = None
-        self.session_aliases = dict(self.app_settings.get("session_aliases", {}))
         self.recording_alias_editor: tk.Entry | None = None
         self.recording_alias_session: Path | None = None
         self.recording_alias_original_value = ""
+        self.pending_short_name_var = tk.StringVar()
 
         self.microphones = []
         self.system_microphone_option = self._system_microphone_option_label()
@@ -113,6 +113,7 @@ class App(
         self.compute_type_var.trace_add("write", self._schedule_settings_save)
         self.include_timestamps_var.trace_add("write", self._schedule_settings_save)
         self.transcribe_mix_track_var.trace_add("write", self._schedule_settings_save)
+        self._migrate_legacy_session_aliases()
         self._refresh_microphones()
         self._refresh_recordings()
         self._set_levels_to_zero()

@@ -69,7 +69,7 @@ What it sets up:
 - Desktop shortcut
 - Taskbar pinned shortcut copy
 - PowerShell command: `dialogtxt`
-- Writable app data path via `DIALOG_TXT_HOME=%LOCALAPPDATA%\DialogToTXT`
+- Uses project root for writable data by default (`recordings/`, `app_settings.json`)
 
 Remove integration:
 
@@ -87,7 +87,7 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
 
 ### Settings
 
-File: `app_settings.json` (project root by default, or `%LOCALAPPDATA%\DialogToTXT\app_settings.json` in app-like mode)
+File: `app_settings.json` (project root by default)
 
 Main options:
 
@@ -204,7 +204,7 @@ pwsh -ExecutionPolicy Bypass -File .\win_install.ps1
 - ярлык на рабочем столе
 - копию ярлыка в Taskbar pinned
 - команду PowerShell: `dialogtxt`
-- путь данных через `DIALOG_TXT_HOME=%LOCALAPPDATA%\DialogToTXT`
+- хранение данных в корне проекта (`recordings/`, `app_settings.json`)
 
 Удаление интеграции:
 
@@ -222,7 +222,7 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
 
 ### Настройки
 
-Файл: `app_settings.json` (по умолчанию в корне проекта, либо `%LOCALAPPDATA%\DialogToTXT\app_settings.json` в режиме app-like)
+Файл: `app_settings.json` (по умолчанию в корне проекта)
 
 Доступные параметры:
 

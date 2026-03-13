@@ -137,8 +137,21 @@ def build_ui(app) -> None:
     )
     app.record_button.grid(row=0, column=4, sticky=tk.E)
 
-    app.status_label = ttk.Label(app.controls_box, text="")
-    app.status_label.grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
+    status_row = ttk.Frame(app.controls_box)
+    status_row.grid(row=1, column=0, sticky=tk.EW, pady=(4, 0))
+    status_row.columnconfigure(0, weight=1)
+
+    app.status_label = ttk.Label(status_row, text="")
+    app.status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 12))
+
+    app.pending_short_name_label = ttk.Label(status_row, text=app._tr("label_next_short_name"))
+    app.pending_short_name_label.grid(row=0, column=1, sticky=tk.E, padx=(0, 4))
+    app.pending_short_name_entry = ttk.Entry(
+        status_row,
+        width=24,
+        textvariable=app.pending_short_name_var,
+    )
+    app.pending_short_name_entry.grid(row=0, column=2, sticky=tk.E)
     app._update_status_line()
 
     levels_row = ttk.Frame(app.controls_box)
@@ -370,6 +383,7 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.controls_box.configure(text=app._tr("group_recording"))
     app.mic_label.configure(text=app._tr("label_microphone"))
     app.ui_language_label.configure(text=app._tr("label_ui_language"))
+    app.pending_short_name_label.configure(text=app._tr("label_next_short_name"))
     app.level_mic_label.configure(text=app._tr("label_level_mic"))
     app.level_desktop_label.configure(text=app._tr("label_level_desktop"))
     app.transcribe_box.configure(text=app._tr("group_transcription"))

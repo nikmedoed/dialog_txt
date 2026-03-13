@@ -9,17 +9,44 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from ..settings import save_app_settings
 from ..storage import (
     discover_sessions,
+    read_session_alias,
     read_session_metadata,
     resolve_track_paths,
     session_title,
     transcript_path,
+    write_session_alias,
 )
 from ..utils import format_seconds
 
 
 class RecordingsMixin:
+    def _migrate_legacy_session_aliases(self) -> None:
+        legacy_aliases = self.app_settings.get("session_aliases", {})
+        if not isinstance(legacy_aliases, dict) or not legacy_aliases:
+            return
+        for session_dir in discover_sessions():
+            alias = " ".join(str(legacy_aliases.get(session_dir.name, "")).split())
+            if not alias:
+                continue
+            if read_session_alias(session_dir):
+                continue
+            write_session_alias(session_dir, alias)
+        if "session_aliases" in self.app_settings:
+            self.app_settings.pop("session_aliases", None)
+            save_app_settings(self.app_settings)
+
+    def _pending_short_name(self) -> str:
+        return " ".join(self.pending_short_name_var.get().split())
+
+    def _apply_pending_short_name(self, session_dir: Path) -> None:
+        short_name = self._pending_short_name()
+        if short_name:
+            self._set_session_alias(session_dir, short_name)
+        self.pending_short_name_var.set("")
+
     def _refresh_recordings(self) -> None:
         self._close_recording_alias_editor(commit=True)
         for row in self.recordings_tree.get_children():
@@ -142,20 +169,14 @@ class RecordingsMixin:
             return
 
         deleted_count = 0
-        aliases_changed = False
         errors: list[str] = []
         for session in sessions:
             try:
                 shutil.rmtree(session)
                 deleted_count += 1
-                if self.session_aliases.pop(session.name, None) is not None:
-                    aliases_changed = True
                 self._log_event(self._tr("log_recording_deleted", path=session))
             except Exception as exc:
                 errors.append(self._tr("log_recording_delete_error", path=session, error=exc))
-
-        if aliases_changed:
-            self._save_app_settings()
         if deleted_count:
             self._set_status(self._tr("status_recordings_deleted", count=deleted_count))
         for error_line in errors:
@@ -186,7 +207,7 @@ class RecordingsMixin:
             )
 
     def _session_alias(self, session_dir: Path) -> str:
-        return " ".join(str(self.session_aliases.get(session_dir.name, "")).split())
+        return read_session_alias(session_dir)
 
     def _recordings_tree_column_id(self, column_name: str) -> str | None:
         columns = tuple(self.recordings_tree["columns"])
@@ -270,10 +291,7 @@ class RecordingsMixin:
 
     def _set_session_alias(self, session_dir: Path, alias: str) -> None:
         normalized_alias = " ".join(alias.split())
-        if normalized_alias:
-            self.session_aliases[session_dir.name] = normalized_alias
-        else:
-            self.session_aliases.pop(session_dir.name, None)
+        write_session_alias(session_dir, normalized_alias)
 
         item_id = str(session_dir)
         if self.recordings_tree.exists(item_id):
@@ -282,7 +300,6 @@ class RecordingsMixin:
                 values[1] = normalized_alias
                 self.recordings_tree.item(item_id, values=values)
 
-        self._save_app_settings()
 
     @staticmethod
     def _session_audio_ready(session_dir: Path) -> bool:

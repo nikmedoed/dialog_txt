@@ -175,6 +175,26 @@ def read_session_metadata(session_dir: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def write_session_metadata(session_dir: Path, payload: dict) -> None:
+    meta_path = session_dir / METADATA_FILE_NAME
+    meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def read_session_alias(session_dir: Path) -> str:
+    payload = read_session_metadata(session_dir)
+    return " ".join(str(payload.get("short_name", "")).split())
+
+
+def write_session_alias(session_dir: Path, alias: str) -> None:
+    normalized_alias = " ".join(alias.split())
+    payload = read_session_metadata(session_dir)
+    if normalized_alias:
+        payload["short_name"] = normalized_alias
+    else:
+        payload.pop("short_name", None)
+    write_session_metadata(session_dir, payload)
+
+
 def discover_sessions() -> list[Path]:
     if not RECORDINGS_ROOT.exists():
         return []

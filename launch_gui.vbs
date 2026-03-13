@@ -6,13 +6,6 @@ mainScript = scriptDir & "\main.py"
 venvPythonw = scriptDir & "\.venv\Scripts\pythonw.exe"
 venvPython = scriptDir & "\.venv\Scripts\python.exe"
 
-If shell.Environment("PROCESS")("DIALOG_TXT_HOME") = "" Then
-    localAppData = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
-    If Len(localAppData) > 0 Then
-        shell.Environment("PROCESS")("DIALOG_TXT_HOME") = localAppData & "\DialogToTXT"
-    End If
-End If
-
 dataHome = shell.Environment("PROCESS")("DIALOG_TXT_HOME")
 If Len(dataHome) > 0 Then
     If Not fso.FolderExists(dataHome) Then

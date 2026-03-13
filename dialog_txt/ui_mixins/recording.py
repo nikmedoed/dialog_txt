@@ -127,8 +127,10 @@ class RecordingMixin:
         self._set_recording_ui_state(is_recording=False)
         self._set_levels_to_zero()
 
-        if self.active_session_dir:
-            update_session_metadata(self.active_session_dir, duration)
+        session_dir = self.active_session_dir
+        if session_dir:
+            update_session_metadata(session_dir, duration)
+            self._apply_pending_short_name(session_dir)
 
         duration_text = format_seconds(duration)
         if auto_transcribe:
@@ -141,7 +143,6 @@ class RecordingMixin:
         if restart_level_monitor:
             self._start_idle_level_monitor(restart=True)
 
-        session_dir = self.active_session_dir
         self.active_session_dir = None
         if session_dir and auto_transcribe:
             self._start_transcription(session_dir)

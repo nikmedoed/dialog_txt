@@ -279,6 +279,5 @@ class SettingsMixin:
             "include_timestamps": options.include_timestamps,
             "transcribe_mix_track": options.transcribe_mix_track,
             "ui_language": self.ui_language,
-            "session_aliases": dict(getattr(self, "session_aliases", {})),
         }
         save_app_settings(self.app_settings)

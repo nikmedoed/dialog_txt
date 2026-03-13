@@ -4,7 +4,6 @@ $root = Split-Path -Parent $PSCommandPath
 $bat = Join-Path $root "dialog_txt.bat"
 $gui = Join-Path $root "launch_gui.vbs"
 $icon = Join-Path $root "docs\icon.ico"
-$appDataHome = Join-Path $env:LOCALAPPDATA "DialogToTXT"
 
 if (-not (Test-Path $bat)) {
     Write-Error "dialog_txt.bat not found in $root"
@@ -15,9 +14,6 @@ if (-not (Test-Path $gui)) {
     Write-Error "launch_gui.vbs not found in $root"
     exit 1
 }
-
-New-Item -ItemType Directory -Path $appDataHome -Force | Out-Null
-Write-Host "App data path: $appDataHome"
 
 $shell = New-Object -ComObject WScript.Shell
 
