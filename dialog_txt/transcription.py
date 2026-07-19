@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import importlib
 import math
+import os
 import re
+import sys
 import threading
 import tempfile
 from pathlib import Path
@@ -101,6 +104,27 @@ class WhisperTranscriber:
         self._model_lock = threading.Lock()
 
     @staticmethod
+    @contextlib.contextmanager
+    def _redirect_missing_standard_streams():
+        replacements: dict[str, object | None] = {}
+        redirected = []
+        try:
+            for stream_name in ("stdout", "stderr"):
+                current = getattr(sys, stream_name, None)
+                if current is not None:
+                    continue
+                redirected_stream = open(os.devnull, "w", encoding="utf-8")
+                replacements[stream_name] = current
+                redirected.append(redirected_stream)
+                setattr(sys, stream_name, redirected_stream)
+            yield
+        finally:
+            for stream_name, original in replacements.items():
+                setattr(sys, stream_name, original)
+            for redirected_stream in redirected:
+                redirected_stream.close()
+
+    @staticmethod
     def _detect_faster_cuda_availability(ctranslate2_module) -> bool:
         try:
             return ctranslate2_module.get_cuda_device_count() > 0
@@ -108,12 +132,22 @@ class WhisperTranscriber:
             return False
 
     @staticmethod
-    def _detect_whisper_cuda_availability() -> bool:
+    def _detect_whisper_cuda_availability() -> tuple[bool, str]:
         try:
             torch = importlib.import_module("torch")
-            return bool(torch.cuda.is_available())
         except Exception:
-            return False
+            return False, "import-failed"
+
+        try:
+            if bool(torch.cuda.is_available()):
+                return True, ""
+        except Exception:
+            return False, "runtime-unavailable"
+
+        cuda_version = str(getattr(getattr(torch, "version", None), "cuda", "") or "").strip()
+        if not cuda_version:
+            return False, "cpu-only"
+        return False, "runtime-unavailable"
 
     @staticmethod
     def _supported_compute_types(ctranslate2_module, device: str) -> set[str]:
@@ -142,10 +176,13 @@ class WhisperTranscriber:
         requested_device: str,
         cuda_available: bool,
         ui_language: str,
+        cuda_diagnostic: str = "",
     ) -> str:
         normalized = str(requested_device or "auto").strip().lower()
         if normalized == "gpu":
             if not cuda_available:
+                if cuda_diagnostic == "cpu-only":
+                    raise RuntimeError(tr(ui_language, "transcriber_err_gpu_torch_cpu_only"))
                 raise RuntimeError(tr(ui_language, "transcriber_err_gpu_unavailable"))
             return "cuda"
         if normalized == "cpu":
@@ -274,8 +311,13 @@ class WhisperTranscriber:
                 )
             ) from exc
 
-        cuda_available = self._detect_whisper_cuda_availability()
-        device = self._resolve_single_device(options.device, cuda_available, ui_language)
+        cuda_available, cuda_diagnostic = self._detect_whisper_cuda_availability()
+        device = self._resolve_single_device(
+            options.device,
+            cuda_available,
+            ui_language,
+            cuda_diagnostic,
+        )
         key = (TRANSCRIPTION_LIBRARY_WHISPER, options.model_name, device, "")
         with self._model_lock:
             model = self._models.get(key)
@@ -293,7 +335,10 @@ class WhisperTranscriber:
                 1.0,
             )
             try:
-                model = whisper_module.load_model(options.model_name, device=device)
+                # openai-whisper uses tqdm while downloading weights; under pythonw
+                # sys.stderr/sys.stdout may be None and tqdm crashes on first write.
+                with self._redirect_missing_standard_streams():
+                    model = whisper_module.load_model(options.model_name, device=device)
             except Exception as exc:
                 raise RuntimeError(
                     tr(
@@ -365,14 +410,26 @@ class WhisperTranscriber:
                 "condition_on_previous_text": False,
                 "word_timestamps": False,
                 "fp16": runtime_device == "cuda",
-                "verbose": False,
+                "verbose": None,
                 "no_speech_threshold": NO_SPEECH_PROB_THRESHOLD,
             }
-            result = model.transcribe(str(probe_audio_path), **kwargs)
+            audio_input = self._prepare_openai_whisper_audio_input(str(probe_audio_path))
+            with self._redirect_missing_standard_streams():
+                result = model.transcribe(audio_input, **kwargs)
             detected = result.get("language") if isinstance(result, dict) else None
             detected_lang = str(detected or "").strip()
             return detected_lang or None
         return None
+
+    @staticmethod
+    def _prepare_openai_whisper_audio_input(audio_input):
+        if isinstance(audio_input, Path):
+            audio_input = str(audio_input)
+        if not isinstance(audio_input, str):
+            return audio_input
+
+        audio_data, _sample_rate = sf.read(audio_input, dtype="float32", always_2d=False)
+        return to_mono(audio_data)
 
     def _resolve_session_language(
         self,
@@ -1014,7 +1071,7 @@ class WhisperTranscriber:
                 "condition_on_previous_text": condition_on_previous_text,
                 "word_timestamps": word_timestamps,
                 "fp16": runtime_device == "cuda",
-                "verbose": False,
+                "verbose": None,
                 "no_speech_threshold": NO_SPEECH_PROB_THRESHOLD,
             }
             if language_arg:
@@ -1023,7 +1080,9 @@ class WhisperTranscriber:
                 transcribe_kwargs["initial_prompt"] = initial_prompt
             if without_timestamps:
                 transcribe_kwargs["without_timestamps"] = True
-            result = model.transcribe(audio_input, **transcribe_kwargs)
+            prepared_audio_input = self._prepare_openai_whisper_audio_input(audio_input)
+            with self._redirect_missing_standard_streams():
+                result = model.transcribe(prepared_audio_input, **transcribe_kwargs)
             segments = result.get("segments") if isinstance(result, dict) else []
             return segments if isinstance(segments, list) else []
 

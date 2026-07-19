@@ -308,41 +308,49 @@ def build_ui(app) -> None:
     recordings_actions.pack(fill=tk.X, pady=(0, 4))
     app.transcribe_selected_button = ttk.Button(
         recordings_actions,
-        text=app._tr("btn_transcribe_selected"),
+        text=app._tr("btn_queue_selected"),
         command=app._transcribe_selected,
     )
     app.transcribe_selected_button.grid(row=0, column=0, sticky=tk.W)
+    app.queue_untranscribed_button = ttk.Button(
+        recordings_actions,
+        text=app._tr("btn_queue_untranscribed"),
+        command=app._queue_untranscribed,
+    )
+    app.queue_untranscribed_button.grid(row=0, column=1, sticky=tk.W, padx=(4, 0))
     app.refresh_recordings_button = ttk.Button(
         recordings_actions,
         text=app._tr("btn_refresh_list"),
         command=app._refresh_recordings,
     )
-    app.refresh_recordings_button.grid(row=0, column=1, sticky=tk.W, padx=(4, 0))
+    app.refresh_recordings_button.grid(row=0, column=2, sticky=tk.W, padx=(4, 0))
     app.open_folder_button = ttk.Button(
         recordings_actions,
         text=app._tr("btn_open_folder"),
         command=app._open_selected_folder,
     )
-    app.open_folder_button.grid(row=0, column=2, sticky=tk.W, padx=(4, 0))
+    app.open_folder_button.grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
     app.delete_selected_button = ttk.Button(
         recordings_actions,
         text=app._tr("btn_delete_selected"),
         command=app._delete_selected_recordings,
     )
-    app.delete_selected_button.grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
+    app.delete_selected_button.grid(row=0, column=4, sticky=tk.W, padx=(4, 0))
 
-    columns = ("session", "short_name", "duration", "audio", "txt")
+    columns = ("session", "short_name", "duration", "audio", "txt", "queue")
     app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns, show="headings")
     app.recordings_tree.heading("session", text=app._tr("col_session"))
     app.recordings_tree.heading("short_name", text=app._tr("col_short_name"))
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
+    app.recordings_tree.heading("queue", text=app._tr("col_queue"))
     app.recordings_tree.column("session", width=132, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("short_name", width=185, anchor=tk.W, stretch=True)
     app.recordings_tree.column("duration", width=100, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("audio", width=72, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("txt", width=48, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("queue", width=55, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.pack(fill=tk.BOTH, expand=True)
     app.recordings_tree.bind("<<TreeviewSelect>>", app._on_recording_selected)
     app.recordings_tree.bind("<Double-1>", app._on_recording_double_click)
@@ -402,7 +410,8 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.progress_label_title.configure(text=app._tr("label_progress"))
     app.cancel_transcribe_button.configure(text=app._tr("cancel"))
     app.recordings_box.configure(text=app._tr("group_recordings"))
-    app.transcribe_selected_button.configure(text=app._tr("btn_transcribe_selected"))
+    app.transcribe_selected_button.configure(text=app._tr("btn_queue_selected"))
+    app.queue_untranscribed_button.configure(text=app._tr("btn_queue_untranscribed"))
     app.refresh_recordings_button.configure(text=app._tr("btn_refresh_list"))
     app.open_folder_button.configure(text=app._tr("btn_open_folder"))
     app.delete_selected_button.configure(text=app._tr("btn_delete_selected"))
@@ -411,6 +420,7 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
+    app.recordings_tree.heading("queue", text=app._tr("col_queue"))
     app.log_box.configure(text=app._tr("group_log"))
     app._set_record_button_style(is_recording=app.recorder is not None)
     app._update_status_line()
@@ -444,12 +454,10 @@ def set_recording_ui_state(app, is_recording: bool) -> None:
 
 
 def set_transcription_ui_state(app, is_running: bool) -> None:
-    if is_running:
-        app.transcribe_selected_button.configure(state=tk.DISABLED)
-    else:
-        session = app._selected_session()
-        can_transcribe = bool(session and app._session_audio_ready(session))
-        app.transcribe_selected_button.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
+    sessions = app._selected_sessions()
+    can_queue_any = any(app._session_audio_ready(session) for session in sessions)
+    app.transcribe_selected_button.configure(state=tk.NORMAL if can_queue_any else tk.DISABLED)
+    app.queue_untranscribed_button.configure(state=tk.NORMAL)
     app.self_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.other_label_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.auto_transcribe_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
@@ -463,11 +471,11 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     app.include_timestamps_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.transcribe_mix_track_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.cancel_transcribe_button.configure(state=tk.NORMAL if is_running else tk.DISABLED)
-    session = app._selected_session()
+    selected_sessions = app._selected_sessions()
     app.refresh_recordings_button.configure(state=tk.NORMAL)
-    app.open_folder_button.configure(state=tk.NORMAL if session else tk.DISABLED)
+    app.open_folder_button.configure(state=tk.NORMAL if len(selected_sessions) == 1 else tk.DISABLED)
     app.delete_selected_button.configure(
-        state=tk.DISABLED if is_running or not session else tk.NORMAL
+        state=tk.DISABLED if is_running or app.transcription_queue or not selected_sessions else tk.NORMAL
     )
     if not is_running:
         app._sync_transcription_settings_ui()

@@ -55,6 +55,7 @@ class RecordingsMixin:
         sessions = discover_sessions()
         for session_dir in sessions:
             audio_status, txt_status = self._session_status(session_dir)
+            queue_status = self._queue_badge_for_session(session_dir)
             display_name = session_title(session_dir)
             short_name = self._session_alias(session_dir)
             duration_text = self._session_duration_text(session_dir)
@@ -62,7 +63,7 @@ class RecordingsMixin:
                 "",
                 tk.END,
                 iid=str(session_dir),
-                values=(display_name, short_name, duration_text, audio_status, txt_status),
+                values=(display_name, short_name, duration_text, audio_status, txt_status, queue_status),
             )
         if sessions and not self.recordings_tree.selection():
             self.recordings_tree.selection_set(str(sessions[0]))
@@ -70,33 +71,22 @@ class RecordingsMixin:
         self._on_recording_selected()
 
     def _on_recording_selected(self, _event=None) -> None:
-        session = self._selected_session()
-        if not session:
-            if not (self.transcription_thread and self.transcription_thread.is_alive()):
-                self.transcribe_selected_button.configure(state=tk.DISABLED)
+        sessions = self._selected_sessions()
+        if not sessions:
+            self.transcribe_selected_button.configure(state=tk.DISABLED)
             self.open_folder_button.configure(state=tk.DISABLED)
             self.delete_selected_button.configure(state=tk.DISABLED)
             return
 
-        can_transcribe = self._session_audio_ready(session)
-        has_transcript = transcript_path(session).exists()
-        if can_transcribe and has_transcript:
-            self.transcribe_selected_button.configure(text=self._tr("btn_retranscribe"))
-        elif can_transcribe:
-            self.transcribe_selected_button.configure(text=self._tr("btn_transcribe_selected"))
-        else:
-            self.transcribe_selected_button.configure(
-                text=self._tr("btn_cannot_transcribe_missing_tracks")
-            )
-
-        self.open_folder_button.configure(state=tk.NORMAL)
+        can_queue_any = any(self._session_audio_ready(session) for session in sessions)
+        self.transcribe_selected_button.configure(state=tk.NORMAL if can_queue_any else tk.DISABLED)
+        self.open_folder_button.configure(state=tk.NORMAL if len(sessions) == 1 else tk.DISABLED)
         if self.transcription_thread and self.transcription_thread.is_alive():
+            self.delete_selected_button.configure(state=tk.DISABLED)
+        elif self.transcription_queue:
             self.delete_selected_button.configure(state=tk.DISABLED)
         else:
             self.delete_selected_button.configure(state=tk.NORMAL)
-
-        if not (self.transcription_thread and self.transcription_thread.is_alive()):
-            self.transcribe_selected_button.configure(state=tk.NORMAL if can_transcribe else tk.DISABLED)
 
     def _on_recording_double_click(self, event=None) -> str:
         if event is not None and self._begin_recording_alias_edit_from_event(event):
@@ -136,6 +126,12 @@ class RecordingsMixin:
     def _delete_selected_recordings(self) -> None:
         self._close_recording_alias_editor(commit=True)
         if self.transcription_thread and self.transcription_thread.is_alive():
+            messagebox.showwarning(
+                self._tr("title_busy"),
+                self._tr("msg_wait_transcription_complete"),
+            )
+            return
+        if self.transcription_queue:
             messagebox.showwarning(
                 self._tr("title_busy"),
                 self._tr("msg_wait_transcription_complete"),

@@ -134,6 +134,12 @@ recordings/
 - Desktop capture error on Linux: check that monitor sources are exposed by PulseAudio/PipeWire.
 - Missing selected transcription library: the app will offer one-click install via `pip`.
 - Transcription error: if CUDA is unavailable, use `compute_type=int8` for CPU mode.
+- `openai-whisper` on NVIDIA GPU requires a CUDA-enabled PyTorch build. `faster-whisper` may still see CUDA while `whisper` fails if `torch` was installed as CPU-only. On Windows, repair the environment with:
+
+```powershell
+uv pip install --python .\.venv\Scripts\python.exe --upgrade openai-whisper
+uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.pytorch.org/whl/cu128 --upgrade --reinstall torch
+```
 
 ---
 
@@ -269,3 +275,9 @@ recordings/
 - Ошибка desktop-захвата на Linux: проверьте, что PulseAudio/PipeWire публикует monitor-источники.
 - Выбранная библиотека транскрибации не установлена: приложение предложит доустановить её через `pip`.
 - Ошибка транскрибации: если CUDA недоступна, используйте `compute_type=int8` для CPU-режима.
+- Для `openai-whisper` на NVIDIA GPU нужна CUDA-сборка PyTorch. `faster-whisper` может видеть CUDA, а `whisper` при этом будет падать, если `torch` установлен как CPU-only. На Windows окружение чинится так:
+
+```powershell
+uv pip install --python .\.venv\Scripts\python.exe --upgrade openai-whisper
+uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.pytorch.org/whl/cu128 --upgrade --reinstall torch
+```

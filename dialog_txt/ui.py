@@ -60,6 +60,9 @@ class App(
         self.event_queue: queue.Queue = queue.Queue()
         self.cancel_transcription_event = threading.Event()
         self.transcription_thread: threading.Thread | None = None
+        self.current_transcription_session: Path | None = None
+        self.transcription_queue: list[Path] = []
+        self.transcription_queue_keys: set[str] = set()
 
         self.app_settings = load_app_settings()
         self.ui_language = self._resolve_ui_language(self.app_settings.get("ui_language"))

@@ -145,7 +145,9 @@ class RecordingMixin:
 
         self.active_session_dir = None
         if session_dir and auto_transcribe:
-            self._start_transcription(session_dir)
+            self._enqueue_transcriptions([session_dir])
+        else:
+            self._start_next_transcription_from_queue()
 
     def _tick_recording_timer(self) -> None:
         if self.recorder is None or self.recording_started_at is None:

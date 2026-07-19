@@ -4,41 +4,154 @@ import queue
 import threading
 import time
 from pathlib import Path
+from typing import Literal
 
 from tkinter import messagebox
 
 from ..models import TranscriptionCancelled, TranscriptionOptions
-from ..storage import resolve_track_paths
+from ..storage import discover_sessions, resolve_track_paths, transcript_path
 
 
 class TranscriptionMixin:
     def _transcribe_selected(self) -> None:
-        session = self._selected_session()
-        if not session:
+        sessions = self._selected_sessions()
+        if not sessions:
             messagebox.showwarning(
                 self._tr("title_recording_selection"),
                 self._tr("msg_select_recording_from_list"),
             )
             return
-        self._start_transcription(session)
+        self._enqueue_transcriptions(sessions)
 
-    def _start_transcription(self, session_dir: Path) -> None:
+    def _queue_untranscribed(self) -> None:
+        sessions = [
+            session_dir
+            for session_dir in discover_sessions()
+            if self._session_audio_ready(session_dir) and not transcript_path(session_dir).exists()
+        ]
+        self._enqueue_transcriptions(sessions, announce_empty=True)
+
+    @staticmethod
+    def _queue_key(session_dir: Path) -> str:
+        return str(session_dir)
+
+    def _is_transcription_running(self) -> bool:
+        return bool(self.transcription_thread and self.transcription_thread.is_alive())
+
+    def _enqueue_transcriptions(
+        self,
+        sessions: list[Path],
+        *,
+        announce_empty: bool = False,
+    ) -> None:
+        unique_sessions: list[Path] = []
+        seen_keys: set[str] = set()
+        for session_dir in sessions:
+            key = self._queue_key(session_dir)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            unique_sessions.append(session_dir)
+
+        added = 0
+        skipped_missing = 0
+        skipped_existing = 0
+        for session_dir in unique_sessions:
+            key = self._queue_key(session_dir)
+            if self.current_transcription_session and key == self._queue_key(
+                self.current_transcription_session
+            ):
+                skipped_existing += 1
+                continue
+            if key in self.transcription_queue_keys:
+                skipped_existing += 1
+                continue
+            if not self._session_audio_ready(session_dir):
+                skipped_missing += 1
+                continue
+            self.transcription_queue.append(session_dir)
+            self.transcription_queue_keys.add(key)
+            added += 1
+
+        if added:
+            self._set_status(
+                self._tr(
+                    "status_queue_added",
+                    added=added,
+                    pending=len(self.transcription_queue),
+                )
+            )
+            self._log_event(
+                self._tr(
+                    "log_queue_added",
+                    added=added,
+                    pending=len(self.transcription_queue),
+                )
+            )
+        elif announce_empty:
+            self._set_status(self._tr("status_queue_empty"))
+
+        if skipped_existing:
+            self._log_event(self._tr("log_queue_skip_already", count=skipped_existing))
+        if skipped_missing:
+            self._log_event(self._tr("log_queue_skip_missing", count=skipped_missing))
+
+        self._refresh_recordings()
+        self._start_next_transcription_from_queue()
+
+    def _clear_transcription_queue(self) -> int:
+        cleared = len(self.transcription_queue)
+        self.transcription_queue.clear()
+        self.transcription_queue_keys.clear()
+        if cleared:
+            self._refresh_recordings()
+        return cleared
+
+    def _start_next_transcription_from_queue(self) -> None:
+        if self.recorder is not None or self._is_transcription_running():
+            return
+
+        while self.transcription_queue:
+            session_dir = self.transcription_queue[0]
+            start_result = self._start_transcription(session_dir)
+            if start_result == "started":
+                self.transcription_queue.pop(0)
+                self.transcription_queue_keys.discard(self._queue_key(session_dir))
+                self._refresh_recordings()
+                return
+            if start_result == "skip":
+                self.transcription_queue.pop(0)
+                self.transcription_queue_keys.discard(self._queue_key(session_dir))
+                self._refresh_recordings()
+                continue
+            return
+
+    def _queue_position_for_session(self, session_dir: Path) -> int | None:
+        key = self._queue_key(session_dir)
+        for index, queued_session in enumerate(self.transcription_queue, start=1):
+            if self._queue_key(queued_session) == key:
+                return index
+        return None
+
+    def _queue_badge_for_session(self, session_dir: Path) -> str:
+        key = self._queue_key(session_dir)
+        if self.current_transcription_session and self._queue_key(self.current_transcription_session) == key:
+            return "▶"
+        position = self._queue_position_for_session(session_dir)
+        return str(position) if position is not None else ""
+
+    def _start_transcription(self, session_dir: Path) -> Literal["started", "skip", "pause"]:
         if self.recorder is not None:
-            messagebox.showwarning(self._tr("title_busy"), self._tr("msg_stop_recording_first"))
-            return
-        if self.transcription_thread and self.transcription_thread.is_alive():
-            messagebox.showwarning(self._tr("title_busy"), self._tr("msg_transcription_running"))
-            return
+            return "pause"
+        if self._is_transcription_running():
+            return "pause"
 
         mic_path, desktop_path = resolve_track_paths(session_dir)
         if mic_path is None or desktop_path is None:
-            messagebox.showerror(
-                self._tr("title_error"),
-                self._tr("msg_session_missing_tracks"),
-            )
-            return
+            self._log_event(self._tr("log_queue_skip_session_missing_tracks", session=session_dir.name))
+            return "skip"
         if not self._ensure_transcription_library_ready(interactive=True):
-            return
+            return "pause"
 
         self.cancel_transcription_event.clear()
         self.progress.configure(value=0)
@@ -60,6 +173,7 @@ class TranscriptionMixin:
                 compute=options.compute_type,
             )
         )
+        self.current_transcription_session = session_dir
 
         self.transcription_thread = threading.Thread(
             target=self._transcribe_worker,
@@ -67,6 +181,7 @@ class TranscriptionMixin:
             daemon=True,
         )
         self.transcription_thread.start()
+        return "started"
 
     def _transcribe_worker(
         self,
@@ -89,10 +204,19 @@ class TranscriptionMixin:
             self.event_queue.put(("error", str(exc)))
 
     def _cancel_transcription(self) -> None:
-        if self.transcription_thread and self.transcription_thread.is_alive():
+        if self._is_transcription_running():
             self.cancel_transcription_event.set()
+            cleared = self._clear_transcription_queue()
             self._set_status(self._tr("status_transcription_cancelling"))
             self._log_event(self._tr("log_transcription_cancel_requested"))
+            if cleared:
+                self._log_event(self._tr("log_queue_cleared", count=cleared))
+            return
+
+        cleared = self._clear_transcription_queue()
+        if cleared:
+            self._set_status(self._tr("status_queue_cleared", count=cleared))
+            self._log_event(self._tr("log_queue_cleared", count=cleared))
 
     def _poll_events(self) -> None:
         while True:
@@ -136,6 +260,7 @@ class TranscriptionMixin:
                 )
             return
 
+        self.current_transcription_session = None
         self._set_transcription_ui_state(is_running=False)
         self.progress.configure(value=0)
         self.progress_label.configure(text="0%")
@@ -143,9 +268,17 @@ class TranscriptionMixin:
 
         if kind == "done":
             _, session_dir, out_path = event
-            self._set_status(self._tr("status_done", session=session_dir.name))
+            pending = len(self.transcription_queue)
+            if pending:
+                self._set_status(
+                    self._tr("status_done_queue_next", session=session_dir.name, pending=pending)
+                )
+            else:
+                self._set_status(self._tr("status_done", session=session_dir.name))
             self._log_event(self._tr("log_transcription_done", path=out_path))
-            self._open_path_in_file_manager(session_dir)
+            if not pending:
+                self._open_path_in_file_manager(session_dir)
+            self._start_next_transcription_from_queue()
             return
         if kind == "cancelled":
             _, session_dir = event
@@ -155,10 +288,17 @@ class TranscriptionMixin:
                 self._tr("title_cancelled"),
                 self._tr("msg_transcription_cancelled"),
             )
+            self._start_next_transcription_from_queue()
             return
         if kind == "error":
             _, message = event
-            self._set_status(self._tr("status_transcription_error"))
+            pending = len(self.transcription_queue)
+            if pending:
+                self._set_status(self._tr("status_transcription_error_queue_next", pending=pending))
+            else:
+                self._set_status(self._tr("status_transcription_error"))
             self._log_event(self._tr("log_transcription_error", error=message))
-            messagebox.showerror(self._tr("title_transcription_error"), message)
+            if not pending:
+                messagebox.showerror(self._tr("title_transcription_error"), message)
+            self._start_next_transcription_from_queue()
             return
