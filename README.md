@@ -26,6 +26,8 @@ Transcript example:
 
 - Python 3.10+
 - Windows, macOS, or Linux
+- On Windows, microphone capture uses PortAudio (`sounddevice`) and desktop
+  loopback uses WASAPI (`soundcard`). Both are installed by `uv sync`/`pip`.
 - For desktop/system-audio capture:
   - Windows: works via WASAPI loopback
   - Linux (PulseAudio/PipeWire): works via monitor/loopback sources
@@ -96,13 +98,19 @@ Main options:
 - `auto_transcribe_after_record`
 - `transcription_library` (`faster-whisper` by default, or `whisper`)
 - `whisper_model`:
-  - for `faster-whisper`: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`
-  - for `whisper`: `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large(-v1/-v2/-v3)`, `turbo`
+  - model lists are backend-specific and are replaced when the transcription
+    library is changed; a model exposed by one backend is not assumed to work in another
+  - for installed `faster-whisper`: all aliases accepted by that backend, including
+    `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large-v1/v2/v3`,
+    `large-v3-turbo`/`turbo`, and Distil-Whisper variants
+  - for OpenAI `whisper`: the list returned by the installed library's
+    `whisper.available_models()` (with a built-in fallback list if it is not installed yet)
 - `whisper_device` (`auto`, `cpu`, `gpu`)
 - `whisper_language` (`ru`, `en`, `auto`, etc.; `auto` is detected once per session, then fixed for all utterances)
 - `whisper_beam_size` (1..10)
 - `whisper_vad_filter` (`true/false`, enables stricter low-energy post-filtering; base speech-interval gating is always on)
-- `whisper_compute_type` (`float16`, `int8_float16`, `int8`, applies to `faster-whisper`)
+- `whisper_compute_type` (`auto` recommended; or an explicit CTranslate2 type such
+  as `int8`, `float16`, or `float32`; applies to `faster-whisper`)
 - `include_timestamps` (`true/false`, default `false`)
 
 ### Data layout
@@ -130,6 +138,10 @@ recordings/
 ### Troubleshooting
 
 - No microphones listed: click `Refresh` and verify input devices in OS settings.
+- Windows microphone opens in other apps but not here: run `uv sync` to install
+  the `sounddevice` capture backend. Older builds used SoundCard for microphones;
+  that backend rejects some mono USB/Bluetooth devices whose Windows mix format
+  is plain PCM instead of `WAVE_FORMAT_EXTENSIBLE`.
 - Desktop capture error on macOS: install/select a virtual loopback input (BlackHole/Soundflower/Loopback).
 - Desktop capture error on Linux: check that monitor sources are exposed by PulseAudio/PipeWire.
 - Missing selected transcription library: the app will offer one-click install via `pip`.
@@ -167,6 +179,8 @@ uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.
 
 - Python 3.10+
 - Windows, macOS или Linux
+- На Windows микрофон записывается через PortAudio (`sounddevice`), а системный
+  звук — через WASAPI (`soundcard`). Обе зависимости ставятся через `uv sync`/`pip`.
 - Для записи desktop/system audio:
   - Windows: через WASAPI loopback
   - Linux (PulseAudio/PipeWire): через monitor/loopback-источники
@@ -237,13 +251,19 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
 - `auto_transcribe_after_record`
 - `transcription_library` (`faster-whisper` по умолчанию, либо `whisper`)
 - `whisper_model`:
-  - для `faster-whisper`: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `distil-large-v3`
-  - для `whisper`: `tiny(.en)`, `base(.en)`, `small(.en)`, `medium(.en)`, `large(-v1/-v2/-v3)`, `turbo`
+  - списки зависят от выбранного backend и полностью заменяются при смене библиотеки;
+    наличие модели в одном backend не означает поддержку в другом
+  - для установленного `faster-whisper`: все принимаемые им алиасы, включая `tiny(.en)`,
+    `base(.en)`, `small(.en)`, `medium(.en)`, `large-v1/v2/v3`,
+    `large-v3-turbo`/`turbo` и варианты Distil-Whisper
+  - для OpenAI `whisper`: результат `whisper.available_models()` установленной
+    библиотеки (до установки используется встроенный резервный список)
 - `whisper_device` (`auto`, `cpu`, `gpu`)
 - `whisper_language` (`ru`, `en`, `auto` и др.; при `auto` язык определяется один раз на сессию и фиксируется для всех реплик)
 - `whisper_beam_size` (1..10)
 - `whisper_vad_filter` (`true/false`, включает более строгую фильтрацию низкоэнергетических фрагментов; базовое выделение речевых интервалов работает всегда)
-- `whisper_compute_type` (`float16`, `int8_float16`, `int8`, используется для `faster-whisper`)
+- `whisper_compute_type` (`auto` рекомендуется; либо явный тип CTranslate2,
+  например `int8`, `float16` или `float32`; используется для `faster-whisper`)
 - `include_timestamps` (`true/false`, по умолчанию `false`)
 
 ### Структура данных
@@ -271,6 +291,10 @@ recordings/
 ### Диагностика
 
 - Нет микрофона в списке: нажмите `Обновить`, проверьте системные устройства ввода.
+- Микрофон работает в других приложениях, но не здесь (Windows): выполните
+  `uv sync`, чтобы установить backend `sounddevice`. Старые версии приложения
+  писали микрофон через SoundCard; он не открывает некоторые моно USB/Bluetooth-
+  устройства с обычным PCM-форматом Windows вместо `WAVE_FORMAT_EXTENSIBLE`.
 - Ошибка desktop-захвата на macOS: установите/выберите virtual loopback-вход (BlackHole/Soundflower/Loopback).
 - Ошибка desktop-захвата на Linux: проверьте, что PulseAudio/PipeWire публикует monitor-источники.
 - Выбранная библиотека транскрибации не установлена: приложение предложит доустановить её через `pip`.

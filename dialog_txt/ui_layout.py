@@ -361,6 +361,8 @@ def build_ui(app) -> None:
     app.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
     app.log_text = ScrolledText(app.log_box, height=4, wrap=tk.WORD, state=tk.DISABLED)
     app.log_text.pack(fill=tk.BOTH, expand=True)
+    app.log_text.bind("<Control-c>", app._copy_log_selection)
+    app.log_text.bind("<Control-C>", app._copy_log_selection)
     _install_settings_tooltips(app)
 
 

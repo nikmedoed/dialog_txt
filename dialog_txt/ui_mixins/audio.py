@@ -7,7 +7,7 @@ import soundcard as sc
 from tkinter import messagebox
 
 from ..localization import system_microphone_label_prefixes
-from ..recording import DualTrackLevelMonitor
+from ..recording import DualTrackLevelMonitor, SoundDeviceMicrophone
 
 DESKTOP_SOURCE_NAME_HINTS = (
     "loopback",
@@ -237,12 +237,13 @@ class AudioMixin:
         if self.level_monitor is not None:
             self._stop_idle_level_monitor()
 
-        mic = self._resolve_selected_microphone()
-        if mic is None:
+        selected_mic = self._resolve_selected_microphone()
+        if selected_mic is None:
             self._set_levels_to_zero()
             return
 
         try:
+            mic = self._recording_microphone(selected_mic)
             _, desktop_loopback = self._resolve_desktop_loopback()
         except Exception as exc:  # pragma: no cover - hardware-specific
             self._set_levels_to_zero()
@@ -256,6 +257,12 @@ class AudioMixin:
             error_callback=self._emit_level_monitor_error,
         )
         self.level_monitor.start()
+
+    @staticmethod
+    def _recording_microphone(mic):
+        if mic is None or not sys.platform.startswith("win"):
+            return mic
+        return SoundDeviceMicrophone(str(getattr(mic, "name", "")))
 
     def _stop_idle_level_monitor(self) -> None:
         if self.level_monitor is None:

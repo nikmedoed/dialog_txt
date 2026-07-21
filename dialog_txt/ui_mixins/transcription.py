@@ -10,6 +10,10 @@ from tkinter import messagebox
 
 from ..models import TranscriptionCancelled, TranscriptionOptions
 from ..storage import discover_sessions, resolve_track_paths, transcript_path
+from ..transcription_backends import (
+    is_transcription_library_installed,
+    normalize_transcription_library,
+)
 
 
 class TranscriptionMixin:
@@ -150,8 +154,13 @@ class TranscriptionMixin:
         if mic_path is None or desktop_path is None:
             self._log_event(self._tr("log_queue_skip_session_missing_tracks", session=session_dir.name))
             return "skip"
-        if not self._ensure_transcription_library_ready(interactive=True):
-            return "pause"
+        library = normalize_transcription_library(self.transcription_library_var.get())
+        # Importing ctranslate2/faster-whisper can take tens of seconds. Only use
+        # the interactive installer path when the package is actually absent;
+        # full imports and model initialization happen in _transcribe_worker.
+        if not is_transcription_library_installed(library):
+            if not self._ensure_transcription_library_ready(interactive=True):
+                return "pause"
 
         self.cancel_transcription_event.clear()
         self.progress.configure(value=0)
@@ -244,6 +253,13 @@ class TranscriptionMixin:
                 self.level_last_seen[source] = 0.0
                 self._render_levels()
             self._log_event(self._tr("log_level_monitor_error", source=source, message=message))
+            return
+
+        if kind == "recording_error":
+            # The capture thread has already stopped both tracks. Finalize now so
+            # the user learns about the failure within one event-poll interval.
+            if self.recorder is not None:
+                self._stop_recording(auto_transcribe=False)
             return
 
         if kind == "progress":

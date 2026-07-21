@@ -30,9 +30,15 @@ class RecordingMixin:
             )
             return
 
-        mic = self._resolve_selected_microphone()
-        if mic is None:
+        selected_mic = self._resolve_selected_microphone()
+        if selected_mic is None:
             messagebox.showerror(self._tr("title_error"), self._tr("msg_select_microphone"))
+            return
+        try:
+            mic = self._recording_microphone(selected_mic)
+        except Exception as exc:
+            messagebox.showerror(self._tr("title_recording_error"), str(exc))
+            self._log_event(self._tr("log_recording_error", error=exc))
             return
 
         try:
@@ -51,7 +57,7 @@ class RecordingMixin:
         write_initial_metadata(
             session_dir=session_dir,
             created_at=created_at,
-            mic_name=mic.name,
+            mic_name=selected_mic.name,
             desktop_source=self._sound_device_name(speaker),
         )
         self._save_app_settings()
@@ -61,17 +67,30 @@ class RecordingMixin:
             desktop=desktop_loopback,
             session_dir=session_dir,
             level_callback=lambda source, level: self.event_queue.put(("level", source, level)),
+            error_callback=lambda error: self.event_queue.put(("recording_error", error)),
         )
         self.active_session_dir = session_dir
         self.recording_started_at = time.time()
         self._set_levels_to_zero()
-        self.recorder.start()
+        try:
+            self.recorder.start()
+        except RecordingError as exc:
+            self.recorder = None
+            self.recording_started_at = None
+            self.active_session_dir = None
+            self._set_levels_to_zero()
+            self._set_status(self._tr("status_recording_error"))
+            self._refresh_recordings()
+            self._log_event(self._tr("log_recording_error", error=exc))
+            messagebox.showerror(self._tr("title_recording_error"), str(exc))
+            self._start_idle_level_monitor(restart=True)
+            return
         self._set_recording_ui_state(is_recording=True)
         self._set_status(
             self._tr("status_recording_active", session=session_dir.name, duration="00:00:00")
         )
         self._log_event(self._tr("log_recording_started", session_dir=session_dir))
-        self._log_event(self._tr("log_mic_source", mic=mic.name))
+        self._log_event(self._tr("log_mic_source", mic=selected_mic.name))
         self._log_event(self._tr("log_desktop_source", desktop=self._sound_device_name(speaker)))
         self._log_event(
             self._tr("log_speaker_labels", self_label=self_label, other_label=other_label)
@@ -219,6 +238,15 @@ class RecordingMixin:
         if total_lines > 800:
             self.log_text.delete("1.0", "200.0")
         self.log_text.configure(state=tk.DISABLED)
+
+    def _copy_log_selection(self, _event=None) -> str:
+        try:
+            selected_text = self.log_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+        except tk.TclError:
+            return "break"
+        self.clipboard_clear()
+        self.clipboard_append(selected_text)
+        return "break"
 
     def _on_close(self) -> None:
         self._save_app_settings()

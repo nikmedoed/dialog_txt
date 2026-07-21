@@ -56,16 +56,10 @@ from .utils import format_seconds, normalize_text, to_mono
 
 
 class WhisperTranscriber:
-    COMPUTE_TYPE_FALLBACK_ORDER = (
-        "int8_float16",
-        "float16",
-        "int8",
-        "float32",
-        "int8_float32",
-        "bfloat16",
-        "int8_bfloat16",
-        "int16",
-    )
+    AUTO_COMPUTE_ORDER = {
+        "cpu": ("int8", "int8_float32", "int16", "float32"),
+        "cuda": ("float16", "int8_float16", "bfloat16", "int8", "float32"),
+    }
     SILENCE_HALLUCINATION_FRAGMENTS = (
         "продолжение следует",
         "субтитры делал",
@@ -198,7 +192,7 @@ class WhisperTranscriber:
     ) -> list[tuple[str, str]]:
         cuda_available = self._detect_faster_cuda_availability(ctranslate2_module)
         devices = self._resolve_device_order(requested_device, cuda_available, ui_language)
-        requested = requested_compute_type.strip()
+        requested = requested_compute_type.strip().lower()
         plan: list[tuple[str, str]] = []
         seen: set[tuple[str, str]] = set()
 
@@ -207,14 +201,18 @@ class WhisperTranscriber:
             if not supported:
                 continue
 
-            compute_candidates: list[str] = []
-            if requested in supported:
-                compute_candidates.append(requested)
-            for candidate in self.COMPUTE_TYPE_FALLBACK_ORDER:
-                if candidate in supported and candidate not in compute_candidates:
-                    compute_candidates.append(candidate)
-            if not compute_candidates:
-                compute_candidates.extend(sorted(supported))
+            if requested == "auto":
+                compute_candidates = [
+                    candidate
+                    for candidate in self.AUTO_COMPUTE_ORDER.get(device, ())
+                    if candidate in supported
+                ]
+            elif requested in supported:
+                compute_candidates = [requested]
+            else:
+                # An explicit precision is a promise, not a hint. Do not silently
+                # turn float16 into int8 (or vice versa) on another device.
+                compute_candidates = []
 
             for compute_type in compute_candidates:
                 key = (device, compute_type)
@@ -259,7 +257,10 @@ class WhisperTranscriber:
             with self._model_lock:
                 model = self._models.get(key)
                 if model is not None:
-                    return model, device, compute_type
+                    actual_compute = str(
+                        getattr(getattr(model, "model", None), "compute_type", compute_type)
+                    )
+                    return model, device, actual_compute
 
                 progress_cb(
                     tr(
@@ -281,7 +282,10 @@ class WhisperTranscriber:
                     errors.append(f"{device}/{compute_type}: {exc}")
                     continue
                 self._models[key] = model
-                return model, device, compute_type
+                actual_compute = str(
+                    getattr(getattr(model, "model", None), "compute_type", compute_type)
+                )
+                return model, device, actual_compute
 
         joined = "; ".join(errors) if errors else "unknown initialization error"
         raise RuntimeError(

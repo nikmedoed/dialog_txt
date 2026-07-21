@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from functools import lru_cache
 
 
@@ -15,12 +16,24 @@ DEFAULT_TRANSCRIPTION_LIBRARY = TRANSCRIPTION_LIBRARY_FASTER
 
 FASTER_WHISPER_MODELS = (
     "tiny",
+    "tiny.en",
     "base",
+    "base.en",
     "small",
+    "small.en",
+    "distil-small.en",
     "medium",
+    "medium.en",
+    "distil-medium.en",
+    "large-v1",
     "large-v2",
     "large-v3",
+    "large",
+    "distil-large-v2",
     "distil-large-v3",
+    "distil-large-v3.5",
+    "large-v3-turbo",
+    "turbo",
 )
 OPENAI_WHISPER_MODELS = (
     "tiny.en",
@@ -40,8 +53,8 @@ OPENAI_WHISPER_MODELS = (
 )
 
 DEFAULT_MODEL_BY_LIBRARY: dict[str, str] = {
-    TRANSCRIPTION_LIBRARY_FASTER: "large-v3",
-    TRANSCRIPTION_LIBRARY_WHISPER: "large-v3",
+    TRANSCRIPTION_LIBRARY_FASTER: "turbo",
+    TRANSCRIPTION_LIBRARY_WHISPER: "turbo",
 }
 
 ALLOWED_DEVICES = ("auto", "cpu", "gpu")
@@ -112,6 +125,17 @@ def check_transcription_library_available(library: str) -> tuple[bool, str]:
     except Exception as exc:
         return False, str(exc)
     return True, ""
+
+
+def is_transcription_library_installed(library: str) -> bool:
+    """Cheap package-presence check that does not import heavy ML runtimes."""
+    normalized = normalize_transcription_library(library)
+    module_names = (
+        ("ctranslate2", "faster_whisper")
+        if normalized == TRANSCRIPTION_LIBRARY_FASTER
+        else ("whisper",)
+    )
+    return all(importlib.util.find_spec(module_name) is not None for module_name in module_names)
 
 
 def refresh_transcription_backend_caches() -> None:
