@@ -279,5 +279,8 @@ class SettingsMixin:
             "include_timestamps": options.include_timestamps,
             "transcribe_mix_track": options.transcribe_mix_track,
             "ui_language": self.ui_language,
+            "transcription_mode": self.transcription_mode_var.get(),
+            "network_whisper_url": self.network_whisper_url_var.get(),
+            "network_whisper_token": self.network_whisper_token_var.get(),
         }
         save_app_settings(self.app_settings)

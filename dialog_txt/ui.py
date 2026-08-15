@@ -102,6 +102,9 @@ class App(
         self.transcribe_mix_track_var = tk.BooleanVar(
             value=self.app_settings["transcribe_mix_track"]
         )
+        self.transcription_mode_var = tk.StringVar(value=self.app_settings["transcription_mode"])
+        self.network_whisper_url_var = tk.StringVar(value=self.app_settings["network_whisper_url"])
+        self.network_whisper_token_var = tk.StringVar(value=self.app_settings["network_whisper_token"])
         self._build_ui()
         self._initialize_transcription_settings_ui()
         self.auto_transcribe_var.trace_add("write", self._schedule_settings_save)
@@ -116,6 +119,9 @@ class App(
         self.compute_type_var.trace_add("write", self._schedule_settings_save)
         self.include_timestamps_var.trace_add("write", self._schedule_settings_save)
         self.transcribe_mix_track_var.trace_add("write", self._schedule_settings_save)
+        self.transcription_mode_var.trace_add("write", self._schedule_settings_save)
+        self.network_whisper_url_var.trace_add("write", self._schedule_settings_save)
+        self.network_whisper_token_var.trace_add("write", self._schedule_settings_save)
         self._migrate_legacy_session_aliases()
         self._refresh_microphones()
         self._refresh_recordings()

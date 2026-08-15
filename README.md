@@ -6,6 +6,31 @@ Project codename/package: `dialog-txt`
 
 `Dialog to TXT` is a Python desktop app (Tkinter) for dual-track dialogue recording and Whisper transcription with speaker labels.
 
+## Network Whisper (home GPU)
+
+The optional network mode keeps recording and the resulting text on the laptop while
+running Whisper on another computer in the same LAN. Existing local transcription is
+still the default.
+
+On the GPU computer, install/run the app as usual, choose a long random shared token,
+and start the server:
+
+```bat
+set DIALOG_TXT_SERVER_TOKEN=replace-with-a-long-random-secret
+run_whisper_server.bat
+```
+
+Allow inbound TCP port `8765` in Windows Firewall only for the **Private** network
+profile. On the laptop set `Mode` to `network`, enter
+`http://HOME-PC-IP:8765` and the same token. Model, GPU, language, VAD and other
+transcription options are taken from the laptop UI and executed by the server.
+
+Health check: `http://HOME-PC-IP:8765/health`. Requests are processed one at a time
+to avoid GPU memory contention. Audio is held only in a temporary server directory
+and deleted after the response. Plain HTTP is intended for a trusted local network;
+use a VPN or HTTPS reverse proxy if traffic crosses an untrusted network. Do not
+forward port 8765 from the router to the internet.
+
 ### What it does
 
 - Records separate tracks:
@@ -158,6 +183,23 @@ uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.
 ## Русский
 
 `Dialog to TXT` — desktop-приложение на Python (Tkinter) для записи диалога в 2 дорожки и получения текстовой расшифровки через Whisper с разметкой спикеров.
+
+### Сетевой Whisper на домашней видеокарте
+
+Локальная транскрибация остаётся режимом по умолчанию. Для обработки на другом
+компьютере домашней сети задайте на нём длинный случайный токен и запустите:
+
+```bat
+set DIALOG_TXT_SERVER_TOKEN=замените-на-длинный-случайный-секрет
+run_whisper_server.bat
+```
+
+В брандмауэре Windows разрешите входящий TCP-порт 8765 только для частного профиля.
+На рабочем ноутбуке выберите режим `network`, укажите
+`http://IP-ДОМАШНЕГО-КОМПЬЮТЕРА:8765` и тот же токен. Аудио временно передаётся
+домашнему компьютеру, обрабатывается по одному заданию на GPU и удаляется там после
+ответа; итоговые TXT сохраняются рядом с записью на ноутбуке. Не пробрасывайте этот
+HTTP-порт в интернет; вне доверенной локальной сети используйте VPN или HTTPS-прокси.
 
 ### Что делает
 

@@ -14,6 +14,7 @@ from ..transcription_backends import (
     is_transcription_library_installed,
     normalize_transcription_library,
 )
+from ..network_whisper import transcribe_over_network
 
 
 class TranscriptionMixin:
@@ -158,7 +159,7 @@ class TranscriptionMixin:
         # Importing ctranslate2/faster-whisper can take tens of seconds. Only use
         # the interactive installer path when the package is actually absent;
         # full imports and model initialization happen in _transcribe_worker.
-        if not is_transcription_library_installed(library):
+        if self.transcription_mode_var.get() != "network" and not is_transcription_library_installed(library):
             if not self._ensure_transcription_library_ready(interactive=True):
                 return "pause"
 
@@ -186,7 +187,14 @@ class TranscriptionMixin:
 
         self.transcription_thread = threading.Thread(
             target=self._transcribe_worker,
-            args=(session_dir, options, self.ui_language),
+            args=(
+                session_dir,
+                options,
+                self.ui_language,
+                self.transcription_mode_var.get(),
+                self.network_whisper_url_var.get(),
+                self.network_whisper_token_var.get(),
+            ),
             daemon=True,
         )
         self.transcription_thread.start()
@@ -197,15 +205,30 @@ class TranscriptionMixin:
         session_dir: Path,
         options: TranscriptionOptions,
         ui_language: str,
+        transcription_mode: str,
+        network_url: str,
+        network_token: str,
     ) -> None:
         try:
-            out_path = self.transcriber.transcribe_session(
-                session_dir=session_dir,
-                progress_cb=lambda text, pct: self.event_queue.put(("progress", text, pct)),
-                cancel_event=self.cancel_transcription_event,
-                options=options,
-                ui_language=ui_language,
-            )
+            progress_cb = lambda text, pct: self.event_queue.put(("progress", text, pct))
+            if transcription_mode == "network":
+                out_path = transcribe_over_network(
+                    session_dir=session_dir,
+                    options=options,
+                    ui_language=ui_language,
+                    server_url=network_url,
+                    token=network_token,
+                    progress_cb=progress_cb,
+                    cancel_event=self.cancel_transcription_event,
+                )
+            else:
+                out_path = self.transcriber.transcribe_session(
+                    session_dir=session_dir,
+                    progress_cb=progress_cb,
+                    cancel_event=self.cancel_transcription_event,
+                    options=options,
+                    ui_language=ui_language,
+                )
             self.event_queue.put(("done", session_dir, out_path))
         except TranscriptionCancelled:
             self.event_queue.put(("cancelled", session_dir))

@@ -286,12 +286,28 @@ def build_ui(app) -> None:
     )
     app.beam_spinbox.grid(row=0, column=6, sticky=tk.W)
 
+    network_row = ttk.Frame(app.transcribe_box)
+    network_row.grid(row=3, column=0, columnspan=4, sticky=tk.EW, pady=(4, 0))
+    network_row.columnconfigure(3, weight=1)
+    app.transcription_mode_label = ttk.Label(network_row, text=app._tr("label_transcription_mode"))
+    app.transcription_mode_label.grid(row=0, column=0, sticky=tk.W)
+    app.transcription_mode_combo = ttk.Combobox(network_row, state="readonly", width=8, values=["local", "network"], textvariable=app.transcription_mode_var)
+    app.transcription_mode_combo.grid(row=0, column=1, sticky=tk.W, padx=(3, 8))
+    app.network_url_label = ttk.Label(network_row, text=app._tr("label_network_url"))
+    app.network_url_label.grid(row=0, column=2, sticky=tk.W)
+    app.network_url_entry = ttk.Entry(network_row, textvariable=app.network_whisper_url_var)
+    app.network_url_entry.grid(row=0, column=3, sticky=tk.EW, padx=(3, 8))
+    app.network_token_label = ttk.Label(network_row, text=app._tr("label_network_token"))
+    app.network_token_label.grid(row=0, column=4, sticky=tk.W)
+    app.network_token_entry = ttk.Entry(network_row, width=12, show="*", textvariable=app.network_whisper_token_var)
+    app.network_token_entry.grid(row=0, column=5, sticky=tk.W, padx=(3, 0))
+
     app.progress_label_title = ttk.Label(app.transcribe_box, text=app._tr("label_progress"))
-    app.progress_label_title.grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
+    app.progress_label_title.grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
     app.progress = ttk.Progressbar(app.transcribe_box, mode="determinate", maximum=100)
-    app.progress.grid(row=3, column=1, sticky=tk.EW, pady=(6, 0), padx=(6, 0))
+    app.progress.grid(row=4, column=1, sticky=tk.EW, pady=(6, 0), padx=(6, 0))
     app.progress_label = ttk.Label(app.transcribe_box, text="0%")
-    app.progress_label.grid(row=3, column=2, sticky=tk.W, padx=(6, 0), pady=(6, 0))
+    app.progress_label.grid(row=4, column=2, sticky=tk.W, padx=(6, 0), pady=(6, 0))
 
     app.cancel_transcribe_button = ttk.Button(
         app.transcribe_box,
@@ -299,7 +315,7 @@ def build_ui(app) -> None:
         command=app._cancel_transcription,
         state=tk.DISABLED,
     )
-    app.cancel_transcribe_button.grid(row=3, column=3, sticky=tk.E, padx=(6, 0), pady=(6, 0))
+    app.cancel_transcribe_button.grid(row=4, column=3, sticky=tk.E, padx=(6, 0), pady=(6, 0))
 
     app.recordings_box = ttk.LabelFrame(top, text=app._tr("group_recordings"), padding=6)
     app.recordings_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
@@ -381,6 +397,9 @@ def _install_settings_tooltips(app) -> None:
         ("tooltip_transcribe_mix_track", (app.transcribe_mix_track_check,)),
         ("tooltip_language", (app.language_label, app.language_combo)),
         ("tooltip_beam", (app.beam_label, app.beam_spinbox)),
+        ("tooltip_transcription_mode", (app.transcription_mode_label, app.transcription_mode_combo)),
+        ("tooltip_network_url", (app.network_url_label, app.network_url_entry)),
+        ("tooltip_network_token", (app.network_token_label, app.network_token_entry)),
     ]
     for translation_key, widgets in tooltip_targets:
         for widget in widgets:
@@ -409,6 +428,9 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.beam_label.configure(text=app._tr("label_beam"))
     app.compute_label.configure(text=app._tr("label_compute"))
     app.vad_filter_check.configure(text=app._tr("vad_filter"))
+    app.transcription_mode_label.configure(text=app._tr("label_transcription_mode"))
+    app.network_url_label.configure(text=app._tr("label_network_url"))
+    app.network_token_label.configure(text=app._tr("label_network_token"))
     app.progress_label_title.configure(text=app._tr("label_progress"))
     app.cancel_transcribe_button.configure(text=app._tr("cancel"))
     app.recordings_box.configure(text=app._tr("group_recordings"))
@@ -472,6 +494,9 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     app.compute_type_combo.configure(state=tk.DISABLED if is_running else "readonly")
     app.include_timestamps_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.transcribe_mix_track_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+    app.transcription_mode_combo.configure(state=tk.DISABLED if is_running else "readonly")
+    app.network_url_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+    app.network_token_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.cancel_transcribe_button.configure(state=tk.NORMAL if is_running else tk.DISABLED)
     selected_sessions = app._selected_sessions()
     app.refresh_recordings_button.configure(state=tk.NORMAL)

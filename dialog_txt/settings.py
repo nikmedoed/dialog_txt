@@ -24,6 +24,9 @@ DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD = True
 DEFAULT_INCLUDE_TIMESTAMPS = False
 DEFAULT_TRANSCRIBE_MIX_TRACK = False
 DEFAULT_UI_LANGUAGE = "ru"
+DEFAULT_TRANSCRIPTION_MODE = "local"
+DEFAULT_NETWORK_WHISPER_URL = "http://127.0.0.1:8765"
+DEFAULT_NETWORK_WHISPER_TOKEN = ""
 
 ALLOWED_COMPUTE_TYPES = (
     "auto",
@@ -55,6 +58,9 @@ def _default_settings() -> dict:
         "include_timestamps": DEFAULT_INCLUDE_TIMESTAMPS,
         "transcribe_mix_track": DEFAULT_TRANSCRIBE_MIX_TRACK,
         "ui_language": DEFAULT_UI_LANGUAGE,
+        "transcription_mode": DEFAULT_TRANSCRIPTION_MODE,
+        "network_whisper_url": DEFAULT_NETWORK_WHISPER_URL,
+        "network_whisper_token": DEFAULT_NETWORK_WHISPER_TOKEN,
     }
 
 
@@ -141,6 +147,14 @@ def _sanitize_settings(raw: dict | None) -> dict:
             DEFAULT_TRANSCRIBE_MIX_TRACK,
         ),
         "ui_language": ui_language,
+        "transcription_mode": (
+            "network" if str(payload.get("transcription_mode", "local")).strip().lower() == "network"
+            else "local"
+        ),
+        "network_whisper_url": str(
+            payload.get("network_whisper_url", DEFAULT_NETWORK_WHISPER_URL)
+        ).strip().rstrip("/") or DEFAULT_NETWORK_WHISPER_URL,
+        "network_whisper_token": str(payload.get("network_whisper_token", "")).strip(),
     }
 
 
