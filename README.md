@@ -12,17 +12,15 @@ The optional network mode keeps recording and the resulting text on the laptop w
 running Whisper on another computer in the same LAN. Existing local transcription is
 still the default.
 
-On the GPU computer, install/run the app as usual, choose a long random shared token,
-and start the server:
+On the GPU computer, install/run the app as usual and start the server:
 
 ```bat
-set DIALOG_TXT_SERVER_TOKEN=replace-with-a-long-random-secret
-run_whisper_server.bat
+python whisper_server.py
 ```
 
 Allow inbound TCP port `8765` in Windows Firewall only for the **Private** network
 profile. On the laptop set `Mode` to `network`, enter
-`http://HOME-PC-IP:8765` and the same token. Model, GPU, language, VAD and other
+`http://HOME-PC-IP:8765`. Model, GPU, language, VAD and other
 transcription options are taken from the laptop UI and executed by the server.
 
 Health check: `http://HOME-PC-IP:8765/health`. Requests are processed one at a time
@@ -121,6 +119,7 @@ Main options:
 - `last_microphone`
 - `speaker_self`, `speaker_other`
 - `auto_transcribe_after_record`
+- `recordings_directory` (optional custom recordings folder, including a local OneDrive folder)
 - `transcription_library` (`faster-whisper` by default, or `whisper`)
 - `whisper_model`:
   - model lists are backend-specific and are replaced when the transcription
@@ -187,16 +186,15 @@ uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.
 ### Сетевой Whisper на домашней видеокарте
 
 Локальная транскрибация остаётся режимом по умолчанию. Для обработки на другом
-компьютере домашней сети задайте на нём длинный случайный токен и запустите:
+компьютере домашней сети запустите в корне проекта:
 
 ```bat
-set DIALOG_TXT_SERVER_TOKEN=замените-на-длинный-случайный-секрет
-run_whisper_server.bat
+python whisper_server.py
 ```
 
 В брандмауэре Windows разрешите входящий TCP-порт 8765 только для частного профиля.
 На рабочем ноутбуке выберите режим `network`, укажите
-`http://IP-ДОМАШНЕГО-КОМПЬЮТЕРА:8765` и тот же токен. Аудио временно передаётся
+`http://IP-ДОМАШНЕГО-КОМПЬЮТЕРА:8765`. Аудио временно передаётся
 домашнему компьютеру, обрабатывается по одному заданию на GPU и удаляется там после
 ответа; итоговые TXT сохраняются рядом с записью на ноутбуке. Не пробрасывайте этот
 HTTP-порт в интернет; вне доверенной локальной сети используйте VPN или HTTPS-прокси.
@@ -291,6 +289,7 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
 - `last_microphone`
 - `speaker_self`, `speaker_other`
 - `auto_transcribe_after_record`
+- `recordings_directory` (необязательная отдельная папка записей, в том числе локальная папка OneDrive)
 - `transcription_library` (`faster-whisper` по умолчанию, либо `whisper`)
 - `whisper_model`:
   - списки зависят от выбранного backend и полностью заменяются при смене библиотеки;

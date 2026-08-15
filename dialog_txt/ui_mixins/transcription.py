@@ -193,7 +193,6 @@ class TranscriptionMixin:
                 self.ui_language,
                 self.transcription_mode_var.get(),
                 self.network_whisper_url_var.get(),
-                self.network_whisper_token_var.get(),
             ),
             daemon=True,
         )
@@ -207,7 +206,6 @@ class TranscriptionMixin:
         ui_language: str,
         transcription_mode: str,
         network_url: str,
-        network_token: str,
     ) -> None:
         try:
             progress_cb = lambda text, pct: self.event_queue.put(("progress", text, pct))
@@ -217,7 +215,6 @@ class TranscriptionMixin:
                     options=options,
                     ui_language=ui_language,
                     server_url=network_url,
-                    token=network_token,
                     progress_cb=progress_cb,
                     cancel_event=self.cancel_transcription_event,
                 )

@@ -16,9 +16,22 @@ from .config import (
     TRANSCRIPT_FILE_NAME,
 )
 
+_recordings_root = RECORDINGS_ROOT
+
+
+def set_recordings_root(path: Path | str | None) -> Path:
+    global _recordings_root
+    value = str(path or "").strip()
+    _recordings_root = Path(value).expanduser().resolve() if value else RECORDINGS_ROOT
+    return _recordings_root
+
+
+def recordings_root() -> Path:
+    return _recordings_root
+
 
 def ensure_recordings_root() -> None:
-    RECORDINGS_ROOT.mkdir(parents=True, exist_ok=True)
+    _recordings_root.mkdir(parents=True, exist_ok=True)
     migrate_legacy_layout()
     migrate_flat_old_names()
 
@@ -26,10 +39,10 @@ def ensure_recordings_root() -> None:
 def create_session_dir(now: datetime | None = None) -> tuple[datetime, Path]:
     created_at = now or datetime.now()
     base_name = created_at.strftime("%Y-%m-%d_%H-%M-%S")
-    session_dir = RECORDINGS_ROOT / base_name
+    session_dir = _recordings_root / base_name
     suffix = 1
     while session_dir.exists():
-        session_dir = RECORDINGS_ROOT / f"{base_name}_{suffix}"
+        session_dir = _recordings_root / f"{base_name}_{suffix}"
         suffix += 1
     session_dir.mkdir(parents=True, exist_ok=True)
     return created_at, session_dir
@@ -86,10 +99,10 @@ def _is_legacy_date_dir(path: Path) -> bool:
 
 
 def migrate_legacy_layout() -> None:
-    if not RECORDINGS_ROOT.exists():
+    if not _recordings_root.exists():
         return
 
-    for date_dir in RECORDINGS_ROOT.iterdir():
+    for date_dir in _recordings_root.iterdir():
         if not date_dir.is_dir() or not _is_legacy_date_dir(date_dir):
             continue
 
@@ -98,12 +111,12 @@ def migrate_legacy_layout() -> None:
             if not is_session_dir(session_dir):
                 continue
 
-            target = RECORDINGS_ROOT / session_dir.name
+            target = _recordings_root / session_dir.name
             if target.exists():
                 suffix = 1
-                while (RECORDINGS_ROOT / f"{session_dir.name}_{suffix}").exists():
+                while (_recordings_root / f"{session_dir.name}_{suffix}").exists():
                     suffix += 1
-                target = RECORDINGS_ROOT / f"{session_dir.name}_{suffix}"
+                target = _recordings_root / f"{session_dir.name}_{suffix}"
             session_dir.rename(target)
             moved_any = True
 
@@ -112,10 +125,10 @@ def migrate_legacy_layout() -> None:
 
 
 def migrate_flat_old_names() -> None:
-    if not RECORDINGS_ROOT.exists():
+    if not _recordings_root.exists():
         return
 
-    for session_dir in RECORDINGS_ROOT.iterdir():
+    for session_dir in _recordings_root.iterdir():
         if not session_dir.is_dir():
             continue
 
@@ -134,16 +147,16 @@ def migrate_flat_old_names() -> None:
         base_name = dt.strftime("%Y-%m-%d_%H-%M-%S")
         suffix = match.group("suffix")
         target_name = f"{base_name}_{suffix}" if suffix else base_name
-        target = RECORDINGS_ROOT / target_name
+        target = _recordings_root / target_name
 
         if target == session_dir:
             continue
 
         if target.exists():
             idx = 1
-            while (RECORDINGS_ROOT / f"{base_name}_{idx}").exists():
+            while (_recordings_root / f"{base_name}_{idx}").exists():
                 idx += 1
-            target = RECORDINGS_ROOT / f"{base_name}_{idx}"
+            target = _recordings_root / f"{base_name}_{idx}"
         session_dir.rename(target)
 
 
@@ -196,12 +209,12 @@ def write_session_alias(session_dir: Path, alias: str) -> None:
 
 
 def discover_sessions() -> list[Path]:
-    if not RECORDINGS_ROOT.exists():
+    if not _recordings_root.exists():
         return []
 
     result = [
         child
-        for child in RECORDINGS_ROOT.iterdir()
+        for child in _recordings_root.iterdir()
         if not child.name.startswith("_") and is_session_dir(child)
     ]
     result.sort(reverse=True)

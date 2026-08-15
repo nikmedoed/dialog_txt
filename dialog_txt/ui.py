@@ -10,7 +10,7 @@ from .localization import UI_LANGUAGE_CODES
 from .numpy_compat import apply_numpy_fromstring_compat_patch
 from .recording import DualTrackLevelMonitor, DualTrackRecorder
 from .settings import load_app_settings
-from .storage import ensure_recordings_root
+from .storage import ensure_recordings_root, set_recordings_root
 from .transcription import WhisperTranscriber
 from .ui_mixins import (
     AudioMixin,
@@ -49,8 +49,6 @@ class App(
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._apply_window_icon()
 
-        ensure_recordings_root()
-
         self.transcriber = WhisperTranscriber()
         self.recorder: DualTrackRecorder | None = None
         self.level_monitor: DualTrackLevelMonitor | None = None
@@ -65,6 +63,14 @@ class App(
         self.transcription_queue_keys: set[str] = set()
 
         self.app_settings = load_app_settings()
+        set_recordings_root(self.app_settings.get("recordings_directory"))
+        try:
+            ensure_recordings_root()
+        except OSError:
+            # A cloud folder can be temporarily unavailable. Keep the configured
+            # value for the next launch, but let the application start safely.
+            set_recordings_root(None)
+            ensure_recordings_root()
         self.ui_language = self._resolve_ui_language(self.app_settings.get("ui_language"))
         self.ui_language_code_var = tk.StringVar(
             value=next(
@@ -104,7 +110,6 @@ class App(
         )
         self.transcription_mode_var = tk.StringVar(value=self.app_settings["transcription_mode"])
         self.network_whisper_url_var = tk.StringVar(value=self.app_settings["network_whisper_url"])
-        self.network_whisper_token_var = tk.StringVar(value=self.app_settings["network_whisper_token"])
         self._build_ui()
         self._initialize_transcription_settings_ui()
         self.auto_transcribe_var.trace_add("write", self._schedule_settings_save)
@@ -121,7 +126,6 @@ class App(
         self.transcribe_mix_track_var.trace_add("write", self._schedule_settings_save)
         self.transcription_mode_var.trace_add("write", self._schedule_settings_save)
         self.network_whisper_url_var.trace_add("write", self._schedule_settings_save)
-        self.network_whisper_token_var.trace_add("write", self._schedule_settings_save)
         self._migrate_legacy_session_aliases()
         self._refresh_microphones()
         self._refresh_recordings()

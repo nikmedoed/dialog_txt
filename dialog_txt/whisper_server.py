@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import hmac
 import io
 import json
-import os
 import tempfile
 import threading
 import zipfile
@@ -33,13 +31,6 @@ class WhisperRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _authorized(self) -> bool:
-        expected = self.server.auth_token  # type: ignore[attr-defined]
-        if not expected:
-            return True
-        supplied = self.headers.get("Authorization", "")
-        return hmac.compare_digest(supplied, f"Bearer {expected}")
-
     def do_GET(self):
         if self.path == "/health":
             self._send(200, b'{"status":"ok"}', "application/json")
@@ -49,9 +40,6 @@ class WhisperRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/v1/transcribe":
             self._send(404, b"not found")
-            return
-        if not self._authorized():
-            self._send(401, b"invalid token")
             return
         if self.headers.get("X-Dialog-Txt-Protocol") != PROTOCOL_VERSION:
             self._send(400, b"unsupported protocol version")
@@ -113,17 +101,13 @@ class WhisperRequestHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dialog to TXT network Whisper server")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--token", default=os.environ.get("DIALOG_TXT_SERVER_TOKEN", ""))
     parser.add_argument("--max-request-mb", type=int, default=4096)
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), WhisperRequestHandler)
-    server.auth_token = args.token
     server.max_request_bytes = args.max_request_mb * 1024 * 1024
     print(f"Dialog TXT Whisper server: http://{args.host}:{args.port}", flush=True)
-    if not args.token:
-        print("WARNING: server is running without an access token", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

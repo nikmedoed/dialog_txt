@@ -26,7 +26,6 @@ DEFAULT_TRANSCRIBE_MIX_TRACK = False
 DEFAULT_UI_LANGUAGE = "ru"
 DEFAULT_TRANSCRIPTION_MODE = "local"
 DEFAULT_NETWORK_WHISPER_URL = "http://127.0.0.1:8765"
-DEFAULT_NETWORK_WHISPER_TOKEN = ""
 
 ALLOWED_COMPUTE_TYPES = (
     "auto",
@@ -60,7 +59,7 @@ def _default_settings() -> dict:
         "ui_language": DEFAULT_UI_LANGUAGE,
         "transcription_mode": DEFAULT_TRANSCRIPTION_MODE,
         "network_whisper_url": DEFAULT_NETWORK_WHISPER_URL,
-        "network_whisper_token": DEFAULT_NETWORK_WHISPER_TOKEN,
+        "recordings_directory": "",
     }
 
 
@@ -154,7 +153,7 @@ def _sanitize_settings(raw: dict | None) -> dict:
         "network_whisper_url": str(
             payload.get("network_whisper_url", DEFAULT_NETWORK_WHISPER_URL)
         ).strip().rstrip("/") or DEFAULT_NETWORK_WHISPER_URL,
-        "network_whisper_token": str(payload.get("network_whisper_token", "")).strip(),
+        "recordings_directory": str(payload.get("recordings_directory", "")).strip(),
     }
 
 

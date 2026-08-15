@@ -7,15 +7,18 @@ import sys
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from ..settings import save_app_settings
 from ..storage import (
     discover_sessions,
+    ensure_recordings_root,
     read_session_alias,
     read_session_metadata,
     resolve_track_paths,
+    recordings_root,
     session_title,
+    set_recordings_root,
     transcript_path,
     write_session_alias,
 )
@@ -23,6 +26,28 @@ from ..utils import format_seconds
 
 
 class RecordingsMixin:
+    def _choose_recordings_directory(self) -> None:
+        if self.recorder is not None or self._is_transcription_running():
+            messagebox.showwarning(self._tr("title_busy"), self._tr("msg_wait_transcription_complete"))
+            return
+        selected = filedialog.askdirectory(
+            title=self._tr("title_choose_recordings_directory"),
+            initialdir=str(recordings_root()),
+            mustexist=False,
+        )
+        if not selected:
+            return
+        try:
+            selected_path = set_recordings_root(selected)
+            ensure_recordings_root()
+        except OSError as exc:
+            messagebox.showerror(self._tr("title_error"), str(exc))
+            return
+        self.app_settings["recordings_directory"] = str(selected_path)
+        save_app_settings(self.app_settings)
+        self._refresh_recordings()
+        self._set_status(self._tr("status_recordings_directory_changed", path=selected_path))
+
     def _migrate_legacy_session_aliases(self) -> None:
         legacy_aliases = self.app_settings.get("session_aliases", {})
         if not isinstance(legacy_aliases, dict) or not legacy_aliases:

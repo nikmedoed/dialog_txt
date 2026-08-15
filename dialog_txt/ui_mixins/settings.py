@@ -281,6 +281,6 @@ class SettingsMixin:
             "ui_language": self.ui_language,
             "transcription_mode": self.transcription_mode_var.get(),
             "network_whisper_url": self.network_whisper_url_var.get(),
-            "network_whisper_token": self.network_whisper_token_var.get(),
+            "recordings_directory": self.app_settings.get("recordings_directory", ""),
         }
         save_app_settings(self.app_settings)

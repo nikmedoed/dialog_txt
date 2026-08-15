@@ -53,7 +53,6 @@ def transcribe_over_network(
     options: TranscriptionOptions,
     ui_language: str,
     server_url: str,
-    token: str,
     progress_cb: Callable[[str, float], None],
     cancel_event: threading.Event,
     timeout: float = 4 * 60 * 60,
@@ -72,8 +71,6 @@ def transcribe_over_network(
         "X-Dialog-Txt-Options": json.dumps(asdict(options), ensure_ascii=True),
         "X-Dialog-Txt-Ui-Language": ui_language,
     }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
         f"{base_url}/v1/transcribe", data=payload, headers=headers, method="POST"
     )
