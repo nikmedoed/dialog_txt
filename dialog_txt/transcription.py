@@ -659,15 +659,21 @@ class WhisperTranscriber:
         accepted_dialogue: list[TranscriptSegment],
         baseline_dialogue: list[TranscriptSegment],
         utterance_start: float,
+        speaker: str,
     ) -> str:
-        recent_confirmed = accepted_dialogue[-8:]
+        # Cross-speaker prompts make Whisper parrot the other audio track when
+        # the current chunk is quiet or unclear. Context is useful, but only
+        # from the same physical source/speaker.
+        recent_confirmed = [seg for seg in accepted_dialogue if seg.speaker == speaker][-8:]
         if recent_confirmed:
             return self._prompt_from_segments(recent_confirmed, DIALOG_CONTEXT_PROMPT_WORDS)
 
         baseline_tail = [
             seg
             for seg in baseline_dialogue
-            if seg.end <= utterance_start and seg.end >= (utterance_start - BASELINE_CONTEXT_LOOKBACK_SEC)
+            if seg.speaker == speaker
+            and seg.end <= utterance_start
+            and seg.end >= (utterance_start - BASELINE_CONTEXT_LOOKBACK_SEC)
         ]
         return self._prompt_from_segments(baseline_tail[-8:], DIALOG_CONTEXT_PROMPT_WORDS)
 
@@ -711,9 +717,7 @@ class WhisperTranscriber:
             candidates=candidates,
             strict_filter=strict_filter,
         )
-        if filtered:
-            return filtered
-        return [chunk for chunk, _, _ in candidates]
+        return filtered
 
     def _transcribe_utterance_range(
         self,
@@ -774,9 +778,7 @@ class WhisperTranscriber:
             candidates=candidates,
             strict_filter=strict_filter,
         )
-        if filtered:
-            return filtered
-        return [chunk for chunk, _, _ in candidates]
+        return filtered
 
     def _transcribe_mix_reference(
         self,
@@ -797,7 +799,8 @@ class WhisperTranscriber:
         if not mix_path.exists():
             return []
 
-        progress_cb(tr(ui_language, "transcriber_status_mix"), 97.0)
+        # A mix track is a full third transcription pass, not the last 3%.
+        progress_cb(tr(ui_language, "transcriber_status_mix"), 67.0)
         with sf.SoundFile(str(mix_path), mode="r") as audio_file:
             speech_ranges = self._detect_speech_ranges(
                 audio_file=audio_file,
@@ -872,7 +875,7 @@ class WhisperTranscriber:
         for index, track in enumerate(tracks):
             if cancel_event.is_set():
                 raise TranscriptionCancelled()
-            baseline_progress = 5.0 + index * 20.0
+            baseline_progress = 5.0 + index * 10.0
             progress_cb(
                 tr(ui_language, "transcriber_status_track", speaker=track["speaker"]),
                 baseline_progress,
@@ -896,7 +899,15 @@ class WhisperTranscriber:
                 track["baseline_segments"] = []
             progress_cb(
                 tr(ui_language, "transcriber_status_speaker_progress", speaker=track["speaker"]),
-                baseline_progress + 20.0,
+                baseline_progress + 10.0,
+            )
+            # Make each independent track useful immediately. It will be
+            # refined/overwritten as utterance-level recognition progresses.
+            self._write_transcript_output(
+                debug_transcript_path(session_dir, str(track["key"])),
+                segments=list(track["baseline_segments"]),
+                include_timestamps=options.include_timestamps,
+                include_speakers=False,
             )
 
         if cancel_event.is_set():
@@ -929,6 +940,7 @@ class WhisperTranscriber:
                 accepted_dialogue=accepted_segments,
                 baseline_dialogue=baseline_dialogue,
                 utterance_start=float(utterance["start"]),
+                speaker=str(utterance["speaker"]),
             )
             utterance_segments = self._transcribe_utterance_range(
                 model=model,
@@ -953,8 +965,32 @@ class WhisperTranscriber:
             if utterance_segments:
                 accepted_segments.extend(utterance_segments)
 
+            # Persist incremental per-track results. Besides being safer on a
+            # long run, the network server can return these files while the job
+            # is still running.
+            speaker_segments = [
+                seg for seg in accepted_segments if seg.speaker == str(utterance["speaker"])
+            ]
+            track_key = next(
+                str(track["key"])
+                for track in tracks
+                if str(track["speaker"]) == str(utterance["speaker"])
+            )
+            self._write_transcript_output(
+                debug_transcript_path(session_dir, track_key),
+                segments=self._finalize_segments(speaker_segments),
+                include_timestamps=options.include_timestamps,
+                include_speakers=False,
+            )
+            self._write_transcript_output(
+                transcript_path(session_dir),
+                segments=self._finalize_segments(accepted_segments),
+                include_timestamps=options.include_timestamps,
+            )
+
             ratio = (index + 1) / total_utterances
-            progress = 45.0 + ratio * 50.0
+            utterance_end_progress = 66.0 if options.transcribe_mix_track else 98.0
+            progress = 25.0 + ratio * (utterance_end_progress - 25.0)
             progress_cb(
                 tr(ui_language, "transcriber_status_speaker_progress", speaker=utterance["speaker"]),
                 progress,
@@ -977,10 +1013,19 @@ class WhisperTranscriber:
                 progress_cb=progress_cb,
                 ui_language=ui_language,
             )
+            if mix_segments:
+                # The mixed signal normally gives Whisper the cleanest lexical
+                # result. Use the separate tracks for diarization instead of
+                # throwing the expensive mix pass away as a debug-only output.
+                resolved_segments = self._assign_mix_speakers(mix_segments, tracks)
 
         polished_segments = self._polish_segments(
             resolved_segments,
             reference_segments=mix_segments,
+        )
+        polished_segments = self._remove_cross_track_echoes(
+            polished_segments,
+            preferred_speaker=other_label,
         )
         merged = self._finalize_segments(polished_segments)
         for track in tracks:
@@ -1002,6 +1047,36 @@ class WhisperTranscriber:
         )
         progress_cb(tr(ui_language, "transcriber_status_done"), 100.0)
         return out_path
+
+    @staticmethod
+    def _assign_mix_speakers(
+        mix_segments: list[TranscriptSegment],
+        tracks: list[dict],
+    ) -> list[TranscriptSegment]:
+        assigned: list[TranscriptSegment] = []
+        for segment in mix_segments:
+            best_speaker = str(tracks[0]["speaker"])
+            best_overlap = -1.0
+            for track in tracks:
+                ranges = track.get("speech_ranges")
+                if not isinstance(ranges, list):
+                    ranges = []
+                overlap = sum(
+                    max(0.0, min(segment.end, end) - max(segment.start, start))
+                    for start, end in ranges
+                )
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_speaker = str(track["speaker"])
+            assigned.append(
+                TranscriptSegment(
+                    start=segment.start,
+                    end=segment.end,
+                    speaker=best_speaker,
+                    text=segment.text,
+                )
+            )
+        return assigned
 
     def _write_debug_transcript_outputs(
         self,
@@ -1591,6 +1666,50 @@ class WhisperTranscriber:
                 )
             )
         return polished
+
+    def _remove_cross_track_echoes(
+        self,
+        segments: list[TranscriptSegment],
+        preferred_speaker: str,
+    ) -> list[TranscriptSegment]:
+        """Remove the same utterance recognized on both physical tracks.
+
+        Desktop is preferred for a simultaneous near-verbatim duplicate: its
+        digital capture is authoritative, while the microphone copy is usually
+        speaker/headphone bleed. Non-overlapping repetitions are preserved.
+        """
+        kept: list[TranscriptSegment] = []
+        for candidate in sorted(segments, key=lambda item: (item.start, item.end)):
+            duplicate_index: int | None = None
+            for index in range(len(kept) - 1, -1, -1):
+                existing = kept[index]
+                if existing.end < candidate.start:
+                    break
+                if existing.speaker == candidate.speaker:
+                    continue
+                overlap_duration = min(existing.end, candidate.end) - max(
+                    existing.start, candidate.start
+                )
+                shorter_duration = min(
+                    max(0.01, existing.end - existing.start),
+                    max(0.01, candidate.end - candidate.start),
+                )
+                if overlap_duration / shorter_duration < 0.50:
+                    continue
+                text_overlap = min(
+                    self._word_overlap_ratio(existing.text, candidate.text),
+                    self._word_overlap_ratio(candidate.text, existing.text),
+                )
+                if text_overlap >= 0.72:
+                    duplicate_index = index
+                    break
+
+            if duplicate_index is None:
+                kept.append(candidate)
+                continue
+            if candidate.speaker == preferred_speaker:
+                kept[duplicate_index] = candidate
+        return sorted(kept, key=lambda item: (item.start, item.end))
 
     @staticmethod
     def _segment_rms(audio_file: sf.SoundFile, start: float, end: float) -> float:

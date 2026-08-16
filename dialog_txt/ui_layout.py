@@ -298,6 +298,12 @@ def build_ui(app) -> None:
         network_row, width=28, textvariable=app.network_whisper_url_var
     )
     app.network_url_entry.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
+    app.choose_recordings_directory_button = ttk.Button(
+        network_row,
+        text=app._tr("btn_recordings_directory"),
+        command=app._choose_recordings_directory,
+    )
+    app.choose_recordings_directory_button.grid(row=0, column=4, sticky=tk.W)
 
     app.progress_label_title = ttk.Label(app.transcribe_box, text=app._tr("label_progress"))
     app.progress_label_title.grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
@@ -349,11 +355,6 @@ def build_ui(app) -> None:
         command=app._delete_selected_recordings,
     )
     app.delete_selected_button.grid(row=0, column=4, sticky=tk.W, padx=(4, 0))
-    app.choose_recordings_directory_button = ttk.Button(
-        recordings_actions, text=app._tr("btn_recordings_directory"),
-        command=app._choose_recordings_directory,
-    )
-    app.choose_recordings_directory_button.grid(row=0, column=5, sticky=tk.W, padx=(4, 0))
 
     columns = ("session", "short_name", "duration", "audio", "txt", "queue")
     app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns, show="headings")
