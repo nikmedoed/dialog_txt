@@ -355,6 +355,10 @@ def build_ui(app) -> None:
         command=app._delete_selected_recordings,
     )
     app.delete_selected_button.grid(row=0, column=4, sticky=tk.W, padx=(4, 0))
+    app.trim_selected_button = ttk.Button(
+        recordings_actions, text=app._tr("btn_trim"), command=app._trim_selected_recording,
+    )
+    app.trim_selected_button.grid(row=0, column=5, sticky=tk.W, padx=(4, 0))
 
     columns = ("session", "short_name", "duration", "audio", "txt", "queue")
     app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns, show="headings")
@@ -364,12 +368,12 @@ def build_ui(app) -> None:
     app.recordings_tree.heading("audio", text=app._tr("col_audio"))
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
     app.recordings_tree.heading("queue", text=app._tr("col_queue"))
-    app.recordings_tree.column("session", width=132, anchor=tk.CENTER, stretch=False)
-    app.recordings_tree.column("short_name", width=185, anchor=tk.W, stretch=True)
-    app.recordings_tree.column("duration", width=100, anchor=tk.CENTER, stretch=False)
-    app.recordings_tree.column("audio", width=72, anchor=tk.CENTER, stretch=False)
-    app.recordings_tree.column("txt", width=48, anchor=tk.CENTER, stretch=False)
-    app.recordings_tree.column("queue", width=55, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("session", width=122, minwidth=100, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("short_name", width=180, minwidth=80, anchor=tk.W, stretch=True)
+    app.recordings_tree.column("duration", width=70, minwidth=62, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("audio", width=48, minwidth=40, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("txt", width=32, minwidth=28, anchor=tk.CENTER, stretch=False)
+    app.recordings_tree.column("queue", width=48, minwidth=40, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.pack(fill=tk.BOTH, expand=True)
     app.recordings_tree.bind("<<TreeviewSelect>>", app._on_recording_selected)
     app.recordings_tree.bind("<Double-1>", app._on_recording_double_click)
@@ -440,6 +444,7 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.refresh_recordings_button.configure(text=app._tr("btn_refresh_list"))
     app.open_folder_button.configure(text=app._tr("btn_open_folder"))
     app.delete_selected_button.configure(text=app._tr("btn_delete_selected"))
+    app.trim_selected_button.configure(text=app._tr("btn_trim"))
     app.choose_recordings_directory_button.configure(text=app._tr("btn_recordings_directory"))
     app.recordings_tree.heading("session", text=app._tr("col_session"))
     app.recordings_tree.heading("short_name", text=app._tr("col_short_name"))
@@ -477,6 +482,7 @@ def set_recording_ui_state(app, is_recording: bool) -> None:
     app.mic_combo.configure(state=tk.DISABLED if is_recording else "readonly")
     app.ui_language_combo.configure(state=tk.DISABLED if is_recording else "readonly")
     app.refresh_mic_button.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
+    app._on_recording_selected()
 
 
 def set_transcription_ui_state(app, is_running: bool) -> None:
@@ -510,6 +516,7 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     )
     if not is_running:
         app._sync_transcription_settings_ui()
+    app._on_recording_selected()
 
 
 def update_status_line(app) -> None:

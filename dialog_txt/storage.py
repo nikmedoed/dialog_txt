@@ -55,7 +55,7 @@ def write_initial_metadata(
     desktop_source: str,
 ) -> None:
     payload = {
-        "created_at": created_at.isoformat(timespec="seconds"),
+        "created_at": created_at.isoformat(timespec="milliseconds"),
         "mic_name": mic_name,
         "desktop_source": desktop_source,
     }
@@ -64,7 +64,7 @@ def write_initial_metadata(
     )
 
 
-def update_session_metadata(session_dir: Path, duration_seconds: int) -> None:
+def update_session_metadata(session_dir: Path, duration_seconds: int, ended_at: float | None = None) -> None:
     meta_path = session_dir / METADATA_FILE_NAME
     payload = {}
     if meta_path.exists():
@@ -72,7 +72,8 @@ def update_session_metadata(session_dir: Path, duration_seconds: int) -> None:
             payload = json.loads(meta_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             payload = {}
-    payload["ended_at"] = datetime.now().isoformat(timespec="seconds")
+    end = datetime.fromtimestamp(ended_at) if ended_at is not None else datetime.now()
+    payload["ended_at"] = end.isoformat(timespec="seconds")
     payload["duration_seconds"] = duration_seconds
     meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

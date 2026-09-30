@@ -110,6 +110,36 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
 4. If auto-transcription is enabled, it starts automatically.
 5. Otherwise select a session and click `Transcribe selected recording`.
 
+### Forgotten recordings and trimming
+
+On Windows, locking the current session or putting the computer to sleep stops
+audio capture immediately. The app finalizes the recording through its UI event
+loop (after resume if Windows has already suspended it). It does not resume the
+recording or automatically transcribe it after these events. Start a new recording
+for the next meeting. Notification registration failures appear in the event log.
+
+Select one completed recording and click **Trim end…**. Click the overview or
+zoomed waveform to move the listening cursor, then click **End here** to set the
+cut. The Play/Pause button and **Space** toggle playback regardless of which
+control was used last; buttons do not take keyboard focus. Use the ±1/5/30-second
+buttons, **Left/Right** (1 second), **Shift+Left/Right** (5 seconds), or
+**Ctrl+Left/Right** (30 seconds) to move the cursor. Seeking while playing continues
+playback from the new position. A preview plays five seconds before and after the
+cut. Moving the cursor does not change the cut until you click **End here**.
+Alternatively, enter the duration to retain
+(`HH:MM:SS.mmm`, `MM:SS`, or seconds), or the meeting's end time (`HH:MM[:SS]`).
+For recordings crossing midnight the clock is resolved to the next day; for
+ambiguous times in recordings longer than a day, include `YYYY-MM-DD HH:MM:SS`.
+
+**Trim all tracks** keeps everything from the start up to the selected point in
+each existing audio track. Ogg/Vorbis is decoded and re-encoded, so trimming is
+not a lossless compressed-file edit. Original audio, metadata, and transcripts
+are retained in the session's `_trim_backups/` folder. Old transcripts are removed
+from the active session so you can transcribe the trimmed recording again.
+**Undo last trim** restores the previous files exactly, including the transcript;
+successive trims can be undone in reverse order. Backups consume additional disk
+space. Trimming is available when recording and the transcription queue are idle.
+
 ### Settings
 
 File: `app_settings.json` (project root by default)
@@ -279,6 +309,37 @@ pwsh -ExecutionPolicy Bypass -File .\win_uninstall.ps1
 3. Нажмите `Остановить запись`.
 4. Если включена авто-транскрибация, она стартует автоматически.
 5. Иначе выберите сессию и нажмите `Транскрибировать выбранную запись`.
+
+### Если забыли остановить запись
+
+В Windows блокировка текущего сеанса или уход компьютера в сон сразу останавливает
+захват звука. Приложение завершает сохранение через очередь событий интерфейса
+(после пробуждения, если Windows уже приостановила процесс). Запись сама не
+возобновляется, автоматическая расшифровка при такой остановке не запускается.
+Для следующей встречи начните новую запись. Ошибка подключения системных
+уведомлений отображается в журнале событий.
+
+Выберите одну завершённую запись и нажмите **Обрезать…**. Клик по пикам всей записи
+или увеличенного участка перемещает курсор прослушивания; **Конец здесь** ставит
+срез на курсор. Одна кнопка Пуск/Пауза и **Пробел** переключают воспроизведение
+независимо от последнего использованного элемента; кнопки не получают фокус.
+Кнопки ±1/5/30 секунд, **←/→** (1 секунда), **Shift+←/→** (5 секунд) и
+**Ctrl+←/→** (30 секунд) перемещают курсор. При перемотке во время прослушивания
+звук продолжается с новой позиции. Отдельная кнопка проигрывает пять секунд до
+и после среза. Перемещение курсора не меняет срез до нажатия **Конец здесь**.
+Либо укажите длительность, которую нужно
+оставить (`ЧЧ:ММ:СС.мс`, `ММ:СС` или секунды), либо время окончания встречи
+(`ЧЧ:ММ[:СС]`). Переход через полночь учитывается. Если запись длиннее суток и
+время неоднозначно, укажите дату: `ГГГГ-ММ-ДД ЧЧ:ММ:СС`.
+
+**Обрезать все дорожки** оставляет начало до выбранной точки во всех имеющихся
+аудиодорожках. Ogg/Vorbis декодируется и кодируется заново: это не обрезка сжатого
+файла без потерь. Оригинальные аудио, метаданные и расшифровки сохраняются внутри
+записи в `_trim_backups/`. Старый TXT убирается из активной записи, чтобы можно было
+расшифровать обрезанную запись заново. **Отменить последнюю обрезку** точно
+восстанавливает предыдущие файлы, включая TXT; несколько обрезок можно отменить
+в обратном порядке. Резервные копии занимают дополнительное место на диске.
+Редактор доступен, когда запись и очередь расшифровки не работают.
 
 ### Настройки
 

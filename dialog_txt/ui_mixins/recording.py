@@ -98,7 +98,8 @@ class RecordingMixin:
         self._tick_recording_timer()
 
     def _stop_recording(
-        self, auto_transcribe: bool | None = None, restart_level_monitor: bool = True
+        self, auto_transcribe: bool | None = None, restart_level_monitor: bool = True,
+        stopped_at: float | None = None,
     ) -> None:
         if self.recorder is None:
             return
@@ -140,7 +141,7 @@ class RecordingMixin:
 
         duration = 0
         if self.recording_started_at is not None:
-            duration = int(time.time() - self.recording_started_at)
+            duration = int((stopped_at if stopped_at is not None else time.time()) - self.recording_started_at)
 
         self.recording_started_at = None
         self._set_recording_ui_state(is_recording=False)
@@ -148,7 +149,7 @@ class RecordingMixin:
 
         session_dir = self.active_session_dir
         if session_dir:
-            update_session_metadata(session_dir, duration)
+            update_session_metadata(session_dir, duration, ended_at=stopped_at)
             self._apply_pending_short_name(session_dir)
 
         duration_text = format_seconds(duration)
@@ -165,7 +166,7 @@ class RecordingMixin:
         self.active_session_dir = None
         if session_dir and auto_transcribe:
             self._enqueue_transcriptions([session_dir])
-        else:
+        elif stopped_at is None:
             self._start_next_transcription_from_queue()
 
     def _tick_recording_timer(self) -> None:
@@ -249,6 +250,10 @@ class RecordingMixin:
         return "break"
 
     def _on_close(self) -> None:
+        if self.trim_window is not None and not self.trim_window.close(restart_monitor=False):
+            return
+        if self.system_events is not None:
+            self.system_events.close()
         self._save_app_settings()
         self._stop_idle_level_monitor()
         if self.recorder is not None:

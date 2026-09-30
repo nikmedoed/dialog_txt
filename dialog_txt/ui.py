@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from pathlib import Path
 
 import tkinter as tk
@@ -12,6 +13,7 @@ from .recording import DualTrackLevelMonitor, DualTrackRecorder
 from .settings import load_app_settings
 from .storage import ensure_recordings_root, set_recordings_root
 from .transcription import WhisperTranscriber
+from .system_events import WindowsSessionEvents
 from .ui_mixins import (
     AudioMixin,
     LocalizationMixin,
@@ -87,6 +89,8 @@ class App(
         self.recording_alias_session: Path | None = None
         self.recording_alias_original_value = ""
         self.pending_short_name_var = tk.StringVar()
+        self.trim_window = None
+        self.system_events = None
 
         self.microphones = []
         self.system_microphone_option = self._system_microphone_option_label()
@@ -133,3 +137,17 @@ class App(
         self._start_idle_level_monitor()
         self.after(250, self._tick_level_meter)
         self.after(150, self._poll_events)
+        try:
+            self.system_events = WindowsSessionEvents(self, self._signal_system_stop)
+        except OSError as exc:
+            self._log_event(self._tr("system_events_error", error=exc))
+
+    def _signal_system_stop(self, reason: str) -> None:
+        recorder = self.recorder
+        if recorder is not None:
+            recorder.stop_event.set()
+        if self.level_monitor is not None:
+            self.level_monitor.stop_event.set()
+        if self.trim_window is not None:
+            self.trim_window.player.stop_event.set()
+        self.event_queue.put(("system_stop", reason, time.time(), recorder))

@@ -26,6 +26,25 @@ from ..utils import format_seconds
 
 
 class RecordingsMixin:
+    def _trim_selected_recording(self) -> None:
+        if self.trim_window is not None:
+            self.trim_window.lift()
+            return
+        session = self._selected_session()
+        if session is None or self.recorder is not None or self._is_transcription_running() or self.transcription_queue:
+            return
+        from ..trim_ui import TrimWindow
+        self._stop_idle_level_monitor()
+        try:
+            self.trim_window = TrimWindow(self, session)
+        except Exception as exc:
+            # A damaged or empty audio file should not leave a half-built dialog.
+            for child in self.winfo_children():
+                if isinstance(child, TrimWindow):
+                    child.destroy()
+            self._start_idle_level_monitor(restart=True)
+            messagebox.showerror(self._tr("trim_title"), str(exc))
+
     def _choose_recordings_directory(self) -> None:
         if self.recorder is not None or self._is_transcription_running():
             messagebox.showwarning(self._tr("title_busy"), self._tr("msg_wait_transcription_complete"))
@@ -97,6 +116,10 @@ class RecordingsMixin:
 
     def _on_recording_selected(self, _event=None) -> None:
         sessions = self._selected_sessions()
+        can_trim = (len(sessions) == 1 and self._session_audio_ready(sessions[0])
+                    and self.recorder is None and not self._is_transcription_running()
+                    and not self.transcription_queue)
+        self.trim_selected_button.configure(state=tk.NORMAL if can_trim else tk.DISABLED)
         if not sessions:
             self.transcribe_selected_button.configure(state=tk.DISABLED)
             self.open_folder_button.configure(state=tk.DISABLED)

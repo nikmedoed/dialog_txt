@@ -258,6 +258,15 @@ class TranscriptionMixin:
 
     def _handle_event(self, event) -> None:
         kind = event[0]
+        if kind == "system_stop":
+            _, reason, stopped_at, recorder = event
+            if recorder is not None and self.recorder is recorder:
+                self._stop_recording(auto_transcribe=False, restart_level_monitor=False,
+                                     stopped_at=stopped_at)
+                text = self._tr("system_stop_" + reason)
+                self._set_status(text)
+                self._log_event(text)
+            return
         if kind == "level":
             _, source, level = event
             if source in self.level_values:
