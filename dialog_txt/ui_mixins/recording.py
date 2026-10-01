@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 import time
+import re
+import webbrowser
 from datetime import datetime
 
 import tkinter as tk
@@ -9,7 +11,7 @@ from tkinter import messagebox
 
 from ..models import RecordingError
 from ..recording import DualTrackRecorder
-from ..storage import create_session_dir, update_session_metadata, write_initial_metadata
+from ..storage import discard_failed_session, create_session_dir, update_session_metadata, write_initial_metadata
 from ..ui_layout import (
     set_record_button_style,
     set_recording_ui_state,
@@ -38,7 +40,7 @@ class RecordingMixin:
             mic = self._recording_microphone(selected_mic)
         except Exception as exc:
             messagebox.showerror(self._tr("title_recording_error"), str(exc))
-            self._log_event(self._tr("log_recording_error", error=exc))
+            self._log_event(self._tr("log_recording_error", error=exc), error=True)
             return
 
         try:
@@ -48,7 +50,7 @@ class RecordingMixin:
                 self._tr("title_error"),
                 self._tr("msg_desktop_device_failed", error=exc),
             )
-            self._log_event(self._tr("log_desktop_capture_error", error=exc))
+            self._log_event(self._tr("log_desktop_capture_error", error=exc), error=True)
             return
         self._stop_idle_level_monitor()
 
@@ -62,26 +64,31 @@ class RecordingMixin:
         )
         self._save_app_settings()
 
-        self.recorder = DualTrackRecorder(
+        recorder = DualTrackRecorder(
             mic=mic,
             desktop=desktop_loopback,
             session_dir=session_dir,
             level_callback=lambda source, level: self.event_queue.put(("level", source, level)),
-            error_callback=lambda error: self.event_queue.put(("recording_error", error)),
+            error_callback=lambda error: self.event_queue.put(("recording_error", error, recorder)),
         )
+        self.recorder = recorder
         self.active_session_dir = session_dir
         self.recording_started_at = time.time()
         self._set_levels_to_zero()
         try:
             self.recorder.start()
         except RecordingError as exc:
+            try:
+                discard_failed_session(session_dir)
+            except OSError as cleanup_error:
+                self._log_event(str(cleanup_error), error=True)
             self.recorder = None
             self.recording_started_at = None
             self.active_session_dir = None
             self._set_levels_to_zero()
-            self._set_status(self._tr("status_recording_error"))
+            self._set_status(self._tr("status_recording_error"), error=True)
             self._refresh_recordings()
-            self._log_event(self._tr("log_recording_error", error=exc))
+            self._log_event(self._tr("log_recording_error", error=exc), error=True)
             messagebox.showerror(self._tr("title_recording_error"), str(exc))
             self._start_idle_level_monitor(restart=True)
             return
@@ -99,7 +106,7 @@ class RecordingMixin:
 
     def _stop_recording(
         self, auto_transcribe: bool | None = None, restart_level_monitor: bool = True,
-        stopped_at: float | None = None,
+        stopped_at: float | None = None, device_change: bool = False,
     ) -> None:
         if self.recorder is None:
             return
@@ -116,9 +123,9 @@ class RecordingMixin:
             self.recording_started_at = None
             self.active_session_dir = None
             self._set_levels_to_zero()
-            self._set_status(self._tr("status_recording_error"))
+            self._set_status(self._tr("status_recording_error"), error=True)
             self._refresh_recordings()
-            self._log_event(self._tr("log_recording_error", error=exc))
+            self._log_event(self._tr("log_recording_error", error=exc), error=True)
             messagebox.showerror(self._tr("title_recording_error"), str(exc))
             if restart_level_monitor:
                 self._start_idle_level_monitor(restart=True)
@@ -127,17 +134,18 @@ class RecordingMixin:
         try:
             recorder.raise_if_failed()
         except RecordingError as exc:
-            self._set_recording_ui_state(is_recording=False)
-            self.recording_started_at = None
-            self.active_session_dir = None
-            self._set_levels_to_zero()
-            self._set_status(self._tr("status_recording_error"))
-            self._refresh_recordings()
-            self._log_event(self._tr("log_recording_error", error=exc))
-            messagebox.showerror(self._tr("title_recording_error"), str(exc))
-            if restart_level_monitor:
-                self._start_idle_level_monitor(restart=True)
-            return
+            self._log_event(self._tr("log_recording_error", error=exc), error=True)
+            if not device_change:
+                self._set_recording_ui_state(is_recording=False)
+                self.recording_started_at = None
+                self.active_session_dir = None
+                self._set_levels_to_zero()
+                self._set_status(self._tr("status_recording_error"), error=True)
+                self._refresh_recordings()
+                messagebox.showerror(self._tr("title_recording_error"), str(exc))
+                if restart_level_monitor:
+                    self._start_idle_level_monitor(restart=True)
+                return
 
         duration = 0
         if self.recording_started_at is not None:
@@ -199,8 +207,9 @@ class RecordingMixin:
     def _set_transcription_ui_state(self, is_running: bool) -> None:
         set_transcription_ui_state(self, is_running=is_running)
 
-    def _set_status(self, text: str) -> None:
+    def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status_text = text
+        self.status_is_error = error
         self._update_status_line()
 
     def _update_status_line(self) -> None:
@@ -228,11 +237,21 @@ class RecordingMixin:
         self.mic_level.configure(value=mic_pct)
         self.desktop_level.configure(value=desktop_pct)
 
-    def _log_event(self, text: str) -> None:
+    def _log_event(self, text: str, *, error: bool = False) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
         line = f"[{timestamp}] {text}\n"
         self.log_text.configure(state=tk.NORMAL)
-        self.log_text.insert(tk.END, line)
+        start = self.log_text.index("end-1c")
+        self.log_text.tag_configure("error", foreground="#b42318")
+        self.log_text.insert(tk.END, line, ("error",) if error else ())
+        self.log_text.tag_configure("web_link", foreground="#1565c0", underline=True)
+        self.log_text.tag_bind("web_link", "<Enter>", lambda _event: self.log_text.configure(cursor="hand2"))
+        self.log_text.tag_bind("web_link", "<Leave>", lambda _event: self.log_text.configure(cursor="xterm"))
+        self.log_text.tag_bind("web_link", "<Button-1>", self._open_log_link)
+        for match in re.finditer(r"https?://[^\s<>]+", line):
+            url = match.group().rstrip(".,;!?)\"'")
+            self.log_text.tag_add("web_link", f"{start}+{match.start()}c",
+                                  f"{start}+{match.start() + len(url)}c")
         self.log_text.see(tk.END)
         # Keep log widget responsive on long sessions.
         total_lines = int(self.log_text.index("end-1c").split(".")[0])
@@ -240,13 +259,37 @@ class RecordingMixin:
             self.log_text.delete("1.0", "200.0")
         self.log_text.configure(state=tk.DISABLED)
 
+    def _open_log_link(self, event) -> str:
+        index = self.log_text.index(f"@{event.x},{event.y}")
+        bounds = self.log_text.tag_prevrange("web_link", f"{index}+1c")
+        if bounds and self.log_text.compare(bounds[0], "<=", index) and self.log_text.compare(index, "<", bounds[1]):
+            webbrowser.open(self.log_text.get(*bounds))
+        return "break"
+
     def _copy_log_selection(self, _event=None) -> str:
         try:
-            selected_text = self.log_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+            text = self.log_text.get(tk.SEL_FIRST, tk.SEL_LAST)
         except tk.TclError:
-            return "break"
+            text = self.log_text.get("1.0", "end-1c")
         self.clipboard_clear()
-        self.clipboard_append(selected_text)
+        self.clipboard_append(text)
+        return "break"
+
+    def _copy_log_all(self) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(self.log_text.get("1.0", "end-1c"))
+
+    def _select_log_all(self, _event=None) -> str:
+        self.log_text.tag_add(tk.SEL, "1.0", "end-1c")
+        self.log_text.focus_set()
+        return "break"
+
+    def _show_log_menu(self, event) -> str:
+        self.log_text.focus_set()
+        try:
+            self.log_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.log_context_menu.grab_release()
         return "break"
 
     def _on_close(self) -> None:

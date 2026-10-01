@@ -54,6 +54,7 @@ class App(
         self.transcriber = WhisperTranscriber()
         self.recorder: DualTrackRecorder | None = None
         self.level_monitor: DualTrackLevelMonitor | None = None
+        self.idle_monitoring_enabled = True
         self.recording_started_at: float | None = None
         self.active_session_dir: Path | None = None
 
@@ -92,6 +93,7 @@ class App(
         self.trim_window = None
         self.system_events = None
 
+        self.speakers = []
         self.microphones = []
         self.system_microphone_option = self._system_microphone_option_label()
         self.auto_transcribe_var = tk.BooleanVar(
@@ -115,6 +117,9 @@ class App(
         self.transcription_mode_var = tk.StringVar(value=self.app_settings["transcription_mode"])
         self.network_whisper_url_var = tk.StringVar(value=self.app_settings["network_whisper_url"])
         self._build_ui()
+        from . import __version__
+        self._log_event(self._tr("log_app_version", version=__version__))
+        self._log_event(self._tr("log_app_author", url="https://nikmedoed.com/"))
         self._initialize_transcription_settings_ui()
         self.auto_transcribe_var.trace_add("write", self._schedule_settings_save)
         self.self_label_var.trace_add("write", self._schedule_settings_save)
@@ -137,10 +142,11 @@ class App(
         self._start_idle_level_monitor()
         self.after(250, self._tick_level_meter)
         self.after(150, self._poll_events)
+        self.after(1500, self._poll_audio_devices)
         try:
             self.system_events = WindowsSessionEvents(self, self._signal_system_stop)
         except OSError as exc:
-            self._log_event(self._tr("system_events_error", error=exc))
+            self._log_event(self._tr("system_events_error", error=exc), error=True)
 
     def _signal_system_stop(self, reason: str) -> None:
         recorder = self.recorder

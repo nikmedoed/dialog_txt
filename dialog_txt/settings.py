@@ -44,6 +44,7 @@ ALLOWED_UI_LANGUAGES = ("ru", "en")
 def _default_settings() -> dict:
     return {
         "last_microphone": "",
+        "last_output": "",
         "speaker_self": DEFAULT_SELF_LABEL,
         "speaker_other": DEFAULT_OTHER_LABEL,
         "auto_transcribe_after_record": DEFAULT_AUTO_TRANSCRIBE_AFTER_RECORD,
@@ -116,6 +117,7 @@ def _sanitize_settings(raw: dict | None) -> dict:
 
     return {
         "last_microphone": " ".join(str(payload.get("last_microphone", "")).split()),
+        "last_output": str(payload.get("last_output", "")).strip(),
         "speaker_self": _normalize_label(payload.get("speaker_self", ""), DEFAULT_SELF_LABEL),
         "speaker_other": _normalize_label(payload.get("speaker_other", ""), DEFAULT_OTHER_LABEL),
         "auto_transcribe_after_record": _normalize_bool(

@@ -26,6 +26,46 @@ from ..utils import format_seconds
 
 
 class RecordingsMixin:
+    def _schedule_transcript_buttons(self, *_args) -> None:
+        if self._transcript_buttons_after_id is None:
+            self._transcript_buttons_after_id = self.after_idle(self._update_transcript_buttons)
+
+    def _update_transcript_buttons(self) -> None:
+        self._transcript_buttons_after_id = None
+        tree = self.recordings_tree
+        rows = set(tree.get_children())
+        for row, button in list(self._transcript_buttons.items()):
+            if row not in rows or not transcript_path(Path(row)).is_file():
+                button.destroy()
+                del self._transcript_buttons[row]
+        for row in rows:
+            button = self._transcript_buttons.get(row)
+            bbox = tree.bbox(row, "download")
+            if not bbox or not transcript_path(Path(row)).is_file():
+                if button is not None:
+                    button.place_forget()
+                continue
+            if button is None:
+                from ..ui_layout import HoverTooltip
+                button = ttk.Button(tree, image=self._download_icon, style="Download.TButton",
+                                    cursor="hand2", takefocus=True,
+                                    command=lambda session=Path(row): self._save_transcript_to_downloads(session))
+                HoverTooltip(button, lambda: self._tr("tooltip_save_txt"))
+                self._transcript_buttons[row] = button
+            x, y, width, height = bbox
+            button.place(x=x + (width - 22) // 2, y=y + 1, width=22, height=height - 2)
+
+    def _save_transcript_to_downloads(self, session: Path) -> None:
+        from ..export import export_transcript
+        try:
+            target = export_transcript(session)
+        except OSError as exc:
+            text = self._tr("log_txt_save_error", error=exc)
+            self._log_event(text)
+            messagebox.showerror(self._tr("title_error"), text)
+            return
+        self._log_event(self._tr("log_txt_saved", name=target.name, path=target.parent))
+
     def _trim_selected_recording(self) -> None:
         if self.trim_window is not None:
             self.trim_window.lift()
@@ -107,12 +147,13 @@ class RecordingsMixin:
                 "",
                 tk.END,
                 iid=str(session_dir),
-                values=(display_name, short_name, duration_text, audio_status, txt_status, queue_status),
+                values=(display_name, short_name, duration_text, audio_status, txt_status, queue_status, ""),
             )
         if sessions and not self.recordings_tree.selection():
             self.recordings_tree.selection_set(str(sessions[0]))
         self._log_event(self._tr("log_recordings_refreshed", count=len(sessions)))
         self._on_recording_selected()
+        self._schedule_transcript_buttons()
 
     def _on_recording_selected(self, _event=None) -> None:
         sessions = self._selected_sessions()
@@ -137,6 +178,8 @@ class RecordingsMixin:
             self.delete_selected_button.configure(state=tk.NORMAL)
 
     def _on_recording_double_click(self, event=None) -> str:
+        if event is not None and self.recordings_tree.identify_column(event.x) == self._recordings_tree_column_id("txt"):
+            return "break"
         if event is not None and self._begin_recording_alias_edit_from_event(event):
             return "break"
         self._open_selected_folder()
@@ -244,7 +287,7 @@ class RecordingsMixin:
                 subprocess.Popen(["xdg-open", str(path)])
             self._log_event(self._tr("log_folder_opened", path=path))
         except Exception as exc:
-            self._log_event(self._tr("log_open_folder_error", path=path, error=exc))
+            self._log_event(self._tr("log_open_folder_error", path=path, error=exc), error=True)
             messagebox.showerror(
                 self._tr("title_open_folder"),
                 self._tr("msg_open_folder_failed", path=path, error=exc),

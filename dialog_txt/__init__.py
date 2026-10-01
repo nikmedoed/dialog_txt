@@ -6,6 +6,8 @@ not require audio-capture dependencies just to start.
 
 from typing import TYPE_CHECKING
 
+__version__ = "0.1.0"
+
 if TYPE_CHECKING:
     from .ui import App
 

@@ -95,7 +95,7 @@
   "label_level_mic": "Mic",
   "label_microphone": "Микрофон:",
   "label_model": "Модель:",
-  "label_next_short_name": "Короткое имя:",
+  "label_next_short_name": "Имя:",
   "label_progress": "Прогресс:",
   "label_speaker_desktop": "Метка desktop:",
   "label_speaker_mic": "Метка mic:",
@@ -198,5 +198,16 @@
   "transcriber_status_model_loading": "Загрузка модели {model} ({compute}) на {device}...",
   "transcriber_status_speaker_progress": "Транскрибация: {speaker}",
   "transcriber_status_track": "Транскрибация дорожки [{speaker}]...",
-  "vad_filter": "Фильтр тишины"
+  "vad_filter": "Фильтр тишины",
+  "tooltip_save_txt": "Сохранить транскрибацию в Загрузки",
+  "log_txt_saved": "TXT сохранён: {name}. Папка: {path}",
+  "log_txt_save_error": "Не удалось сохранить TXT: {error}",
+  "log_app_version": "Dialog to TXT — версия: {version}",
+  "log_app_author": "Автор: Муромцев Никита. Другие полезные утилиты и поддержка автора: {url}",
+  "label_audio_output": "Выход:",
+  "copy_log": "Копировать лог",
+  "copy_log_selection": "Копировать выделенное",
+  "select_all": "Выделить всё",
+  "monitor_pause": "Приостановить мониторинг в ожидании",
+  "monitor_resume": "Включить мониторинг в ожидании"
 }

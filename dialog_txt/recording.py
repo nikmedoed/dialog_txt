@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 import soundfile as sf
 import sounddevice as sd
 
@@ -252,6 +253,8 @@ class SoundDeviceMicrophone:
                 score += 100
             elif candidate in target or target in candidate:
                 score += 50
+            if not score:
+                continue
             host_name = str(hostapis[int(device["hostapi"])]["name"])
             if "WASAPI" in host_name:
                 score += 20
@@ -267,26 +270,78 @@ class SoundDeviceMicrophone:
 
 class _SoundDeviceRecorder:
     def __init__(self, device: int, samplerate: int, blocksize: int):
-        self.stream = sd.InputStream(
-            device=device,
-            samplerate=samplerate,
-            blocksize=blocksize,
-            channels=1,
-            dtype="float32",
-        )
+        self.output_rate = samplerate
+        info = sd.query_devices(device)
+        native_rate = int(round(info["default_samplerate"]))
+        native_channels = max(1, int(info.get("max_input_channels", 1)))
+        rates = list(dict.fromkeys((samplerate, native_rate, 48000, 44100, 16000)))
+        channels = list(dict.fromkeys((1, native_channels)))
+        failures = []
+        self.stream = None
+        for rate in rates:
+            for count in channels:
+                try:
+                    sd.check_input_settings(device=device, samplerate=rate,
+                                            channels=count, dtype="float32")
+                    # Format probing alone is insufficient on some drivers:
+                    # also try opening the actual stream before accepting it.
+                    stream = sd.InputStream(
+                        device=device, samplerate=rate,
+                        blocksize=max(1, round(blocksize * rate / samplerate)),
+                        channels=count, dtype="float32",
+                    )
+                except sd.PortAudioError as exc:
+                    failures.append(f"{rate} Hz / {count} ch: {exc}")
+                    continue
+                self.input_rate = rate
+                self.input_channels = count
+                self.stream = stream
+                break
+            if self.stream is not None:
+                break
+        if self.stream is None:
+            name = info.get("name", str(device))
+            raise RuntimeError(f'Cannot open microphone "{name}" (device {device}): '
+                               + "; ".join(failures))
+        self.ratio = self.input_rate / self.output_rate
+        self.buffer = np.empty(0, dtype=np.float32)
+        self.position = 0.0
 
     def __enter__(self):
-        self.stream.start()
+        try:
+            self.stream.start()
+        except Exception:
+            self.stream.close()
+            raise
         return self
 
     def __exit__(self, exc_type, exc, traceback):
         self.stream.close()
 
-    def record(self, numframes: int):
-        data, overflowed = self.stream.read(numframes)
+    def _read(self, frames: int):
+        data, overflowed = self.stream.read(frames)
         if overflowed:
             warnings.warn("audio input overflow", RuntimeWarning, stacklevel=2)
-        return data
+        return data[:, :1]
+
+    def record(self, numframes: int):
+        if self.input_rate == self.output_rate:
+            return self._read(numframes)
+        if numframes <= 0:
+            return np.empty((0, 1), dtype=np.float32)
+        # Keep the fractional position and boundary sample between blocks so
+        # resampling neither drops frames nor changes the recording's duration.
+        positions = self.position + np.arange(numframes) * self.ratio
+        next_position = self.position + numframes * self.ratio
+        needed = max(math.floor(positions[-1]) + 2, math.floor(next_position) + 1)
+        if needed > len(self.buffer):
+            data = self._read(needed - len(self.buffer))
+            self.buffer = np.concatenate((self.buffer, data[:, 0]))
+        result = np.interp(positions, np.arange(len(self.buffer)), self.buffer)
+        consumed = math.floor(next_position)
+        self.buffer = self.buffer[consumed:]
+        self.position = next_position - consumed
+        return result.astype(np.float32).reshape(-1, 1)
 
 
 class DualTrackLevelMonitor:

@@ -66,7 +66,8 @@ class SettingsMixin:
         if is_available:
             return True
         self._log_event(
-            self._tr("log_transcription_library_missing", library=library, error=error or "unknown")
+            self._tr("log_transcription_library_missing", library=library, error=error or "unknown"),
+            error=True,
         )
         if not interactive:
             return False
@@ -134,7 +135,8 @@ class SettingsMixin:
                     "log_transcription_library_install_failed",
                     library=library,
                     error=install_error_output,
-                )
+                ),
+                error=True,
             )
             messagebox.showerror(
                 self._tr("title_error"),
@@ -145,7 +147,7 @@ class SettingsMixin:
                     error=install_error_output,
                 ),
             )
-            self._set_status(self._tr("status_transcription_error"))
+            self._set_status(self._tr("status_transcription_error"), error=True)
             return False
 
         refresh_transcription_backend_caches()
@@ -156,7 +158,8 @@ class SettingsMixin:
                     "log_transcription_library_install_failed",
                     library=library,
                     error=error or "validation failed",
-                )
+                ),
+                error=True,
             )
             messagebox.showerror(
                 self._tr("title_error"),
@@ -167,7 +170,7 @@ class SettingsMixin:
                     error=error or "validation failed",
                 ),
             )
-            self._set_status(self._tr("status_transcription_error"))
+            self._set_status(self._tr("status_transcription_error"), error=True)
             return False
 
         self._log_event(
@@ -266,6 +269,7 @@ class SettingsMixin:
         options = self._current_transcription_options()
         self.app_settings = {
             "last_microphone": selected_mic,
+            "last_output": self.output_combo.get() if self.output_combo.current() > 0 else "",
             "speaker_self": self_label,
             "speaker_other": other_label,
             "auto_transcribe_after_record": bool(self.auto_transcribe_var.get()),

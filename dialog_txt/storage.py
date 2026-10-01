@@ -10,6 +10,7 @@ from .config import (
     DESKTOP_TRANSCRIPT_FILE_NAME,
     METADATA_FILE_NAME,
     MIC_FILE_NAME,
+    MIX_FILE_NAME,
     MIC_TRANSCRIPT_FILE_NAME,
     MIX_TRANSCRIPT_FILE_NAME,
     RECORDINGS_ROOT,
@@ -46,6 +47,17 @@ def create_session_dir(now: datetime | None = None) -> tuple[datetime, Path]:
         suffix += 1
     session_dir.mkdir(parents=True, exist_ok=True)
     return created_at, session_dir
+
+
+def discard_failed_session(session_dir: Path) -> None:
+    """Remove only files owned by a newly created, unsuccessful recording."""
+    session_dir = session_dir.resolve()
+    if session_dir.parent != recordings_root().resolve():
+        raise ValueError("Failed session is outside the recordings directory")
+    for name in (MIC_FILE_NAME, DESKTOP_FILE_NAME, MIX_FILE_NAME, METADATA_FILE_NAME):
+        (session_dir / name).unlink(missing_ok=True)
+    # Avoid recursively deleting anything unexpected in the session.
+    session_dir.rmdir()
 
 
 def write_initial_metadata(

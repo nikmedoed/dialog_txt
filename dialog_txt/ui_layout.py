@@ -86,6 +86,9 @@ class HoverTooltip:
 def build_ui(app) -> None:
     style = ttk.Style(app)
     style.configure("Treeview", rowheight=19)
+    style.configure("ErrorStatus.TLabel", foreground="#b42318")
+    style.configure("Monitor.TButton", padding=(4, 2), anchor=tk.CENTER)
+    style.configure("Download.TButton", padding=0, anchor=tk.CENTER)
     style.configure("Compact.Horizontal.TProgressbar", thickness=8)
 
     top = ttk.Frame(app, padding=6)
@@ -95,89 +98,77 @@ def build_ui(app) -> None:
     app.controls_box.pack(fill=tk.X)
     app.controls_box.columnconfigure(0, weight=1)
 
-    mic_row = ttk.Frame(app.controls_box)
-    mic_row.grid(row=0, column=0, sticky=tk.EW)
-    mic_row.columnconfigure(3, weight=1)
-    app.mic_label = ttk.Label(mic_row, text=app._tr("label_microphone"))
-    app.mic_label.grid(row=0, column=0, sticky=tk.W)
-    app.mic_combo = ttk.Combobox(mic_row, state="readonly", width=34)
-    app.mic_combo.grid(row=0, column=1, sticky=tk.W, padx=(2, 0))
+    devices_grid = ttk.Frame(app.controls_box)
+    devices_grid.grid(row=0, column=0, sticky=tk.EW)
+    devices_grid.columnconfigure(1, weight=4)
+    devices_grid.columnconfigure(2, weight=1)
+
+    app.mic_label = ttk.Label(devices_grid, text=app._tr("label_microphone"))
+    app.mic_label.grid(row=0, column=0, sticky=tk.E, padx=(0, 4))
+    app.output_label = ttk.Label(devices_grid, text=app._tr("label_audio_output"))
+    app.output_label.grid(row=1, column=0, sticky=tk.E, padx=(0, 4), pady=(4, 0))
+    app.mic_combo = ttk.Combobox(devices_grid, state="readonly", width=18)
+    app.mic_combo.grid(row=0, column=1, sticky=tk.EW)
     app.mic_combo.bind("<<ComboboxSelected>>", app._on_mic_selected)
+    app.output_combo = ttk.Combobox(devices_grid, state="readonly", width=18)
+    app.output_combo.grid(row=1, column=1, sticky=tk.EW, pady=(4, 0))
+    app.output_combo.bind("<<ComboboxSelected>>", app._on_output_selected)
 
-    app.refresh_mic_button = ttk.Button(mic_row, text="↻", width=3, command=app._refresh_microphones)
-    app.refresh_mic_button.grid(row=0, column=2, padx=(4, 0), sticky=tk.W)
+    app.mic_level = ttk.Progressbar(devices_grid, length=65, maximum=100,
+                                  style="Compact.Horizontal.TProgressbar")
+    app.mic_level.grid(row=0, column=2, sticky=tk.EW, padx=(4, 3))
+    app.desktop_level = ttk.Progressbar(devices_grid, length=65, maximum=100,
+                                      style="Compact.Horizontal.TProgressbar")
+    app.desktop_level.grid(row=1, column=2, sticky=tk.EW, padx=(4, 3), pady=(4, 0))
 
-    app.ui_language_frame = ttk.Frame(mic_row)
-    app.ui_language_frame.grid(row=0, column=3)
+    monitor_actions = ttk.Frame(devices_grid)
+    monitor_actions.grid(row=0, column=3, sticky=tk.W, padx=(0, 4))
+    app._monitor_pause_icon = tk.PhotoImage(master=app, width=12, height=12)
+    app._monitor_pause_icon.put("#263238", to=(3, 2, 5, 10))
+    app._monitor_pause_icon.put("#263238", to=(7, 2, 9, 10))
+    app._monitor_play_icon = tk.PhotoImage(master=app, width=12, height=12)
+    for y in range(2, 10):
+        right = 4 + min(y - 2, 9 - y) * 2
+        app._monitor_play_icon.put("#263238", to=(3, y, right, y + 1))
+    app.monitor_toggle_button = ttk.Button(
+        monitor_actions, image=app._monitor_pause_icon, style="Monitor.TButton",
+        command=app._toggle_idle_monitoring,
+    )
+    app.monitor_toggle_button.grid(row=0, column=0, padx=(0, 2))
+    app.refresh_mic_button = ttk.Button(monitor_actions, text="↻", width=3,
+                                       command=app._refresh_microphones)
+    app.refresh_mic_button.grid(row=0, column=1)
+    actions = ttk.Frame(devices_grid)
+    actions.grid(row=0, column=4, sticky=tk.EW)
+    actions.columnconfigure(1, weight=1)
+    app.ui_language_frame = ttk.Frame(actions)
+    app.ui_language_frame.grid(row=0, column=0, sticky=tk.W, padx=(0, 6))
     app.ui_language_label = ttk.Label(app.ui_language_frame, text=app._tr("label_ui_language"))
-    app.ui_language_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
+    app.ui_language_label.grid(row=0, column=0, padx=(0, 4))
     app.ui_language_combo = ttk.Combobox(
-        app.ui_language_frame,
-        state="readonly",
-        width=4,
-        values=list(UI_LANGUAGE_CODES.keys()),
-        textvariable=app.ui_language_code_var,
+        app.ui_language_frame, state="readonly", width=4,
+        values=list(UI_LANGUAGE_CODES.keys()), textvariable=app.ui_language_code_var,
     )
-    app.ui_language_combo.grid(row=0, column=1, sticky=tk.W)
+    app.ui_language_combo.grid(row=0, column=1)
     app.ui_language_combo.bind("<<ComboboxSelected>>", app._on_ui_language_selected)
-
     app.record_button = tk.Button(
-        mic_row,
-        text=app._tr("record_start"),
-        command=app._toggle_recording,
-        bg="#1f8b4c",
-        fg="white",
-        activebackground="#176a38",
-        activeforeground="white",
-        disabledforeground="#d8d8d8",
-        relief=tk.FLAT,
-        bd=0,
-        padx=12,
-        pady=5,
+        actions, text=app._tr("record_start"), command=app._toggle_recording,
+        bg="#1f8b4c", fg="white", activebackground="#176a38",
+        activeforeground="white", disabledforeground="#d8d8d8",
+        relief=tk.FLAT, bd=0, padx=12, pady=2,
     )
-    app.record_button.grid(row=0, column=4, sticky=tk.E)
-
-    status_row = ttk.Frame(app.controls_box)
-    status_row.grid(row=1, column=0, sticky=tk.EW, pady=(4, 0))
-    status_row.columnconfigure(0, weight=1)
-
-    app.status_label = ttk.Label(status_row, text="")
-    app.status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 12))
-
-    app.pending_short_name_label = ttk.Label(status_row, text=app._tr("label_next_short_name"))
-    app.pending_short_name_label.grid(row=0, column=1, sticky=tk.E, padx=(0, 4))
-    app.pending_short_name_entry = ttk.Entry(
-        status_row,
-        width=24,
-        textvariable=app.pending_short_name_var,
-    )
-    app.pending_short_name_entry.grid(row=0, column=2, sticky=tk.E)
+    app.record_button.grid(row=0, column=1, sticky=tk.EW)
+    name_row = ttk.Frame(devices_grid)
+    name_row.grid(row=1, column=3, columnspan=2, sticky=tk.EW, pady=(4, 0))
+    name_row.columnconfigure(1, weight=1)
+    app.pending_short_name_label = ttk.Label(name_row, text=app._tr("label_next_short_name"))
+    app.pending_short_name_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
+    app.pending_short_name_entry = ttk.Entry(name_row, width=29,
+                                           textvariable=app.pending_short_name_var)
+    app.pending_short_name_entry.grid(row=0, column=1, sticky=tk.EW)
+    app.status_label = ttk.Label(app.controls_box, text="", wraplength=580)
+    app.status_label.grid(row=1, column=0, sticky=tk.W, pady=(2, 0))
     app._update_status_line()
-
-    levels_row = ttk.Frame(app.controls_box)
-    levels_row.grid(row=2, column=0, sticky=tk.EW, pady=(2, 0))
-    levels_row.columnconfigure(1, weight=1)
-    levels_row.columnconfigure(4, weight=1)
-
-    app.level_mic_label = ttk.Label(levels_row, text=app._tr("label_level_mic"))
-    app.level_mic_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-    app.mic_level = ttk.Progressbar(
-        levels_row,
-        mode="determinate",
-        maximum=100,
-        style="Compact.Horizontal.TProgressbar",
-    )
-    app.mic_level.grid(row=0, column=1, sticky=tk.EW, padx=(0, 8))
-
-    app.level_desktop_label = ttk.Label(levels_row, text=app._tr("label_level_desktop"))
-    app.level_desktop_label.grid(row=0, column=3, sticky=tk.W, padx=(0, 4))
-    app.desktop_level = ttk.Progressbar(
-        levels_row,
-        mode="determinate",
-        maximum=100,
-        style="Compact.Horizontal.TProgressbar",
-    )
-    app.desktop_level.grid(row=0, column=4, sticky=tk.EW)
 
     app.transcribe_box = ttk.LabelFrame(top, text=app._tr("group_transcription"), padding=6)
     app.transcribe_box.pack(fill=tk.X, pady=(6, 0))
@@ -360,8 +351,12 @@ def build_ui(app) -> None:
     )
     app.trim_selected_button.grid(row=0, column=5, sticky=tk.W, padx=(4, 0))
 
-    columns = ("session", "short_name", "duration", "audio", "txt", "queue")
-    app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns, show="headings")
+    columns = ("session", "short_name", "duration", "audio", "txt", "queue", "download")
+    app.recordings_tree = ttk.Treeview(app.recordings_box, columns=columns,
+                                     displaycolumns=("session", "short_name", "duration", "audio", "txt", "queue", "download"),
+                                     show="headings")
+    app.recordings_tree.heading("download", text="DL")
+    app.recordings_tree.column("download", width=26, minwidth=26, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.heading("session", text=app._tr("col_session"))
     app.recordings_tree.heading("short_name", text=app._tr("col_short_name"))
     app.recordings_tree.heading("duration", text=app._tr("col_duration"))
@@ -375,6 +370,20 @@ def build_ui(app) -> None:
     app.recordings_tree.column("txt", width=32, minwidth=28, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("queue", width=48, minwidth=40, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.pack(fill=tk.BOTH, expand=True)
+    app._download_icon = tk.PhotoImage(master=app, width=12, height=12)
+    # Draw a crisp download arrow and tray without relying on font glyph metrics.
+    app._download_icon.put("#263238", to=(5, 1, 7, 7))
+    for left, right, y in ((2, 10, 5), (3, 9, 6), (4, 8, 7), (5, 7, 8)):
+        app._download_icon.put("#263238", to=(left, y, right, y + 1))
+    app._download_icon.put("#263238", to=(1, 9, 3, 12))
+    app._download_icon.put("#263238", to=(9, 9, 11, 12))
+    app._download_icon.put("#263238", to=(1, 11, 11, 12))
+    app._transcript_buttons = {}
+    app._transcript_buttons_after_id = None
+    app.recordings_tree.configure(yscrollcommand=app._schedule_transcript_buttons)
+    app.recordings_tree.bind("<Configure>", app._schedule_transcript_buttons, add="+")
+    app.recordings_tree.bind("<B1-Motion>", app._schedule_transcript_buttons, add="+")
+    app.recordings_tree.bind("<ButtonRelease-1>", app._schedule_transcript_buttons, add="+")
     app.recordings_tree.bind("<<TreeviewSelect>>", app._on_recording_selected)
     app.recordings_tree.bind("<Double-1>", app._on_recording_double_click)
     app.recordings_tree.bind("<Delete>", app._on_recording_delete_key)
@@ -382,15 +391,31 @@ def build_ui(app) -> None:
 
     app.log_box = ttk.LabelFrame(top, text=app._tr("group_log"), padding=6)
     app.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
-    app.log_text = ScrolledText(app.log_box, height=4, wrap=tk.WORD, state=tk.DISABLED)
+    app.copy_log_button = ttk.Button(app.log_box, text=app._tr("copy_log"),
+                                     command=app._copy_log_all)
+    app.copy_log_button.pack(anchor=tk.E, pady=(0, 3))
+    app.log_context_menu = tk.Menu(app, tearoff=False)
+    app.log_context_menu.add_command(label=app._tr("copy_log_selection"), command=app._copy_log_selection)
+    app.log_context_menu.add_command(label=app._tr("copy_log"), command=app._copy_log_all)
+    app.log_context_menu.add_command(label=app._tr("select_all"), command=app._select_log_all)
+    app.log_text = ScrolledText(app.log_box, height=6, wrap=tk.WORD, state=tk.DISABLED)
     app.log_text.pack(fill=tk.BOTH, expand=True)
     app.log_text.bind("<Control-c>", app._copy_log_selection)
     app.log_text.bind("<Control-C>", app._copy_log_selection)
+    app.log_text.bind("<Control-a>", app._select_log_all)
+    app.log_text.bind("<Control-A>", app._select_log_all)
+    app.log_text.bind("<<Copy>>", app._copy_log_selection)
+    app.log_text.bind("<Button-3>", app._show_log_menu)
     _install_settings_tooltips(app)
 
 
 def _install_settings_tooltips(app) -> None:
-    app._tooltips = []
+    app._tooltips = [
+        HoverTooltip(app.mic_combo, app.mic_combo.get),
+        HoverTooltip(app.output_combo, app.output_combo.get),
+        HoverTooltip(app.monitor_toggle_button, lambda: app._tr(
+            "monitor_pause" if app.idle_monitoring_enabled else "monitor_resume")),
+    ]
     tooltip_targets: list[tuple[str, tuple[tk.Widget, ...]]] = [
         ("tooltip_auto_transcribe", (app.auto_transcribe_check,)),
         ("tooltip_speaker_mic", (app.self_label_label, app.self_label_entry)),
@@ -419,8 +444,6 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.mic_label.configure(text=app._tr("label_microphone"))
     app.ui_language_label.configure(text=app._tr("label_ui_language"))
     app.pending_short_name_label.configure(text=app._tr("label_next_short_name"))
-    app.level_mic_label.configure(text=app._tr("label_level_mic"))
-    app.level_desktop_label.configure(text=app._tr("label_level_desktop"))
     app.transcribe_box.configure(text=app._tr("group_transcription"))
     app.auto_transcribe_check.configure(text=app._tr("auto_transcribe_after_record"))
     app.self_label_label.configure(text=app._tr("label_speaker_mic"))
@@ -453,6 +476,10 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
     app.recordings_tree.heading("queue", text=app._tr("col_queue"))
     app.log_box.configure(text=app._tr("group_log"))
+    app.copy_log_button.configure(text=app._tr("copy_log"))
+    app.log_context_menu.entryconfigure(0, label=app._tr("copy_log_selection"))
+    app.log_context_menu.entryconfigure(1, label=app._tr("copy_log"))
+    app.log_context_menu.entryconfigure(2, label=app._tr("select_all"))
     app._set_record_button_style(is_recording=app.recorder is not None)
     app._update_status_line()
     app._on_recording_selected()
@@ -478,10 +505,11 @@ def set_record_button_style(app, is_recording: bool) -> None:
 
 def set_recording_ui_state(app, is_recording: bool) -> None:
     app._set_record_button_style(is_recording)
+    app._sync_monitor_toggle(is_recording)
     app.record_button.configure(state=tk.NORMAL)
-    app.mic_combo.configure(state=tk.DISABLED if is_recording else "readonly")
+    app.mic_combo.configure(state="readonly")
     app.ui_language_combo.configure(state=tk.DISABLED if is_recording else "readonly")
-    app.refresh_mic_button.configure(state=tk.DISABLED if is_recording else tk.NORMAL)
+    app.refresh_mic_button.configure(state=tk.NORMAL)
     app._on_recording_selected()
 
 
@@ -520,4 +548,11 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
 
 
 def update_status_line(app) -> None:
-    app.status_label.configure(text=f"{app._tr('status_prefix')}: {app.status_text}")
+    app.status_label.configure(text=app.status_text,
+                               style="ErrorStatus.TLabel" if getattr(app, "status_is_error", False) else "TLabel")
+    if app.status_text in (app._tr("status_idle"), app._tr("status_microphones_found", count=len(app.microphones))):
+        app.status_label.grid_remove()
+    else:
+        app.status_label.grid()
+    app.mic_label.configure(text=f"Mic ({len(app.microphones)}):")
+    app.output_label.configure(text=f"Out ({len(app.speakers)}):")

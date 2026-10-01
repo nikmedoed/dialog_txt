@@ -23,6 +23,59 @@ DESKTOP_SOURCE_NAME_HINTS = (
 
 
 class AudioMixin:
+    def _poll_audio_devices(self) -> None:
+        try:
+            signature = self._audio_device_signature()
+            if signature != getattr(self, "_audio_signature", None):
+                self._refresh_microphones()
+        except Exception as exc:
+            if str(exc) != getattr(self, "_audio_poll_error", None):
+                self._log_event(str(exc), error=True)
+                self._audio_poll_error = str(exc)
+        self.after(1500, self._poll_audio_devices)
+
+    @staticmethod
+    def _audio_device_signature():
+        return (tuple((str(d.id), d.name) for d in sc.all_microphones(False)),
+                tuple((str(d.id), d.name) for d in sc.all_speakers()),
+                str(getattr(sc.default_microphone(), "id", "")),
+                str(getattr(sc.default_speaker(), "id", "")))
+
+    def _refresh_outputs(self):
+        self.speakers = list(sc.all_speakers())
+        previous = self.output_combo.get() or self.app_settings.get("last_output", "")
+        self.system_output_option = self._tr("system_microphone")
+        values = [self.system_output_option] + [d.name for d in self.speakers]
+        self.output_combo.configure(values=values)
+        self.output_combo.set(previous if previous in values else values[0])
+
+    def _selected_speaker(self):
+        name = self.output_combo.get()
+        return (next((d for d in self.speakers if d.name == name), None)
+                or sc.default_speaker() or next(iter(self.speakers), None))
+
+    def _on_output_selected(self, _event=None):
+        self._on_mic_selected()
+        if self.trim_window is not None:
+            player = self.trim_window.player
+            if player.thread is not None and player.thread.is_alive():
+                player.play(player.position, player.end)
+
+    def _playback_device(self):
+        import sounddevice as sd
+        speaker = self._selected_speaker()
+        if speaker is None:
+            return None
+        target = speaker.name.lower()
+        devices = sd.query_devices()
+        apis = sd.query_hostapis()
+        candidates = [(100 * (d["name"].lower() == target) +
+                       20 * ("WASAPI" in apis[d["hostapi"]]["name"]), i)
+                      for i, d in enumerate(devices)
+                      if d["max_output_channels"] and
+                      (d["name"].lower() in target or target in d["name"].lower())]
+        return max(candidates)[1] if candidates else None
+
     def _refresh_microphones(self) -> None:
         try:
             mics = sc.all_microphones(include_loopback=False)
@@ -31,9 +84,24 @@ class AudioMixin:
                 self._tr("title_error"),
                 self._tr("msg_microphones_list_failed", error=exc),
             )
-            self._log_event(self._tr("log_microphones_list_failed", error=exc))
+            self._log_event(self._tr("log_microphones_list_failed", error=exc), error=True)
             return
 
+        was_recording = self.recorder is not None
+        if was_recording:
+            self._stop_recording(auto_transcribe=False, restart_level_monitor=False, device_change=True)
+        self._stop_idle_level_monitor()
+        player = self.trim_window.player if self.trim_window is not None else None
+        resume_playback = player is not None and player.thread is not None and player.thread.is_alive()
+        if resume_playback:
+            player.stop()
+        # PortAudio caches the endpoint list until reinitialized. All our streams
+        # must be closed before refreshing it (including the editor's output).
+        if sys.platform.startswith("win"):
+            import sounddevice as sd
+            sd._terminate()
+            sd._initialize()
+        self._refresh_outputs()
         previous_selection = self._selected_microphone_name()
         self.microphones = list(mics)
         self.system_microphone_option = self._system_microphone_option_label()
@@ -49,13 +117,25 @@ class AudioMixin:
             self._log_event(self._tr("log_microphones_refreshed", count=len(self.microphones)))
             self._save_app_settings()
         else:
-            self._set_status(self._tr("status_microphones_missing"))
-            self._log_event(self._tr("log_microphones_missing"))
-        self._start_idle_level_monitor(restart=True)
+            self._set_status(self._tr("status_microphones_missing"), error=True)
+            self._log_event(self._tr("log_microphones_missing"), error=True)
+        self._audio_signature = self._audio_device_signature()
+        if was_recording:
+            self._start_recording()
+        else:
+            self._start_idle_level_monitor(restart=True)
+        if resume_playback:
+            player.play(player.position, player.end)
 
     def _on_mic_selected(self, _event=None) -> None:
+        was_recording = self.recorder is not None
+        if was_recording:
+            self._stop_recording(auto_transcribe=False, restart_level_monitor=False, device_change=True)
         self._save_app_settings()
-        self._start_idle_level_monitor(restart=True)
+        if was_recording:
+            self._start_recording()
+        else:
+            self._start_idle_level_monitor(restart=True)
 
     def _selected_microphone_name(self) -> str:
         selected_name = self.mic_combo.get().strip() if hasattr(self, "mic_combo") else ""
@@ -73,7 +153,7 @@ class AudioMixin:
     def _resolve_selected_microphone(self):
         selected_name = self._selected_microphone_name()
         if self._is_system_microphone_selection(selected_name):
-            return self._default_microphone()
+            return self._default_microphone() or next(iter(self.microphones), None)
 
         if selected_name:
             for mic in self.microphones:
@@ -82,7 +162,7 @@ class AudioMixin:
 
         idx = self.mic_combo.current()
         if idx == 0:
-            return self._default_microphone()
+            return self._default_microphone() or next(iter(self.microphones), None)
 
         mic_idx = idx - 1
         if 0 <= mic_idx < len(self.microphones):
@@ -177,7 +257,7 @@ class AudioMixin:
         speaker = None
         preferred_speaker_name = ""
         try:
-            speaker = sc.default_speaker()
+            speaker = self._selected_speaker()
         except Exception:
             speaker = None
 
@@ -196,11 +276,11 @@ class AudioMixin:
                 if loopback is not None and self._desktop_source_score(loopback, preferred_speaker_name) > 0:
                     return speaker, loopback
                 if loopback_open_error is not None:
-                    self._log_event(self._tr("err_open_loopback_failed", error=loopback_open_error))
+                    self._log_event(self._tr("err_open_loopback_failed", error=loopback_open_error), error=True)
             else:
-                self._log_event(self._tr("err_no_output_device_id"))
+                self._log_event(self._tr("err_no_output_device_id"), error=True)
         else:
-            self._log_event(self._tr("err_no_output_device"))
+            self._log_event(self._tr("err_no_output_device"), error=True)
 
         include_loopback = sys.platform != "darwin"
         try:
@@ -229,7 +309,32 @@ class AudioMixin:
     def _emit_level_monitor_error(self, source: str, message: str) -> None:
         self.event_queue.put(("level_monitor_error", source, message))
 
+    def _sync_monitor_toggle(self, is_recording: bool) -> None:
+        if is_recording:
+            self.monitor_toggle_button.grid_remove()
+        else:
+            self.monitor_toggle_button.configure(
+                image=self._monitor_pause_icon if self.idle_monitoring_enabled else self._monitor_play_icon
+            )
+            self.monitor_toggle_button.grid()
+        enabled = is_recording or self.idle_monitoring_enabled
+        for meter in (self.mic_level, self.desktop_level):
+            meter.state(["!disabled"] if enabled else ["disabled"])
+
+    def _toggle_idle_monitoring(self) -> None:
+        if self.recorder is not None:
+            return
+        self.idle_monitoring_enabled = not self.idle_monitoring_enabled
+        self._sync_monitor_toggle(False)
+        if self.idle_monitoring_enabled:
+            self._start_idle_level_monitor(restart=True)
+        else:
+            self._stop_idle_level_monitor()
+            self._set_levels_to_zero()
+
     def _start_idle_level_monitor(self, restart: bool = False) -> None:
+        if not self.idle_monitoring_enabled:
+            return
         if self.recorder is not None:
             return
         if self.level_monitor is not None and not restart:
@@ -247,7 +352,7 @@ class AudioMixin:
             _, desktop_loopback = self._resolve_desktop_loopback()
         except Exception as exc:  # pragma: no cover - hardware-specific
             self._set_levels_to_zero()
-            self._log_event(self._tr("log_level_monitor_unavailable", error=exc))
+            self._log_event(self._tr("log_level_monitor_unavailable", error=exc), error=True)
             return
 
         self.level_monitor = DualTrackLevelMonitor(

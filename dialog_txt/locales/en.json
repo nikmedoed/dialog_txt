@@ -95,7 +95,7 @@
   "label_level_mic": "Mic",
   "label_microphone": "Microphone:",
   "label_model": "Model:",
-  "label_next_short_name": "Short name:",
+  "label_next_short_name": "Name:",
   "label_progress": "Progress:",
   "label_speaker_desktop": "desktop label:",
   "label_speaker_mic": "mic label:",
@@ -198,5 +198,16 @@
   "transcriber_status_model_loading": "Loading model {model} ({compute}) on {device}...",
   "transcriber_status_speaker_progress": "Transcribing: {speaker}",
   "transcriber_status_track": "Transcribing track [{speaker}]...",
-  "vad_filter": "Silence filter"
+  "vad_filter": "Silence filter",
+  "tooltip_save_txt": "Save transcript to Downloads",
+  "log_txt_saved": "TXT saved: {name}. Folder: {path}",
+  "log_txt_save_error": "Could not save TXT: {error}",
+  "log_app_version": "Dialog to TXT version: {version}",
+  "log_app_author": "Author: Muromtsev Nikita. Other useful utilities and support the author: {url}",
+  "label_audio_output": "Output:",
+  "copy_log": "Copy log",
+  "copy_log_selection": "Copy selection",
+  "select_all": "Select all",
+  "monitor_pause": "Pause idle monitoring",
+  "monitor_resume": "Resume idle monitoring"
 }

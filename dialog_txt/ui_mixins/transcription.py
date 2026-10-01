@@ -99,7 +99,7 @@ class TranscriptionMixin:
         if skipped_existing:
             self._log_event(self._tr("log_queue_skip_already", count=skipped_existing))
         if skipped_missing:
-            self._log_event(self._tr("log_queue_skip_missing", count=skipped_missing))
+            self._log_event(self._tr("log_queue_skip_missing", count=skipped_missing), error=True)
 
         self._refresh_recordings()
         self._start_next_transcription_from_queue()
@@ -153,7 +153,7 @@ class TranscriptionMixin:
 
         mic_path, desktop_path = resolve_track_paths(session_dir)
         if mic_path is None or desktop_path is None:
-            self._log_event(self._tr("log_queue_skip_session_missing_tracks", session=session_dir.name))
+            self._log_event(self._tr("log_queue_skip_session_missing_tracks", session=session_dir.name), error=True)
             return "skip"
         library = normalize_transcription_library(self.transcription_library_var.get())
         # Importing ctranslate2/faster-whisper can take tens of seconds. Only use
@@ -268,6 +268,8 @@ class TranscriptionMixin:
                 self._log_event(text)
             return
         if kind == "level":
+            if self.recorder is None and not self.idle_monitoring_enabled:
+                return
             _, source, level = event
             if source in self.level_values:
                 self.level_values[source] = max(0.0, min(1.0, float(level)))
@@ -281,14 +283,24 @@ class TranscriptionMixin:
                 self.level_values[source] = 0.0
                 self.level_last_seen[source] = 0.0
                 self._render_levels()
-            self._log_event(self._tr("log_level_monitor_error", source=source, message=message))
+            self._set_status(self._tr("log_level_monitor_error", source=source, message=message), error=True)
+            self._log_event(self._tr("log_level_monitor_error", source=source, message=message), error=True)
             return
 
         if kind == "recording_error":
+            if len(event) > 2 and event[2] is not self.recorder:
+                return
             # The capture thread has already stopped both tracks. Finalize now so
             # the user learns about the failure within one event-poll interval.
             if self.recorder is not None:
-                self._stop_recording(auto_transcribe=False)
+                try:
+                    devices_changed = self._audio_device_signature() != getattr(self, "_audio_signature", None)
+                except Exception:
+                    devices_changed = False
+                if devices_changed:
+                    self._refresh_microphones()
+                else:
+                    self._stop_recording(auto_transcribe=False)
             return
 
         if kind == "progress":
@@ -339,10 +351,10 @@ class TranscriptionMixin:
             _, message = event
             pending = len(self.transcription_queue)
             if pending:
-                self._set_status(self._tr("status_transcription_error_queue_next", pending=pending))
+                self._set_status(self._tr("status_transcription_error_queue_next", pending=pending), error=True)
             else:
-                self._set_status(self._tr("status_transcription_error"))
-            self._log_event(self._tr("log_transcription_error", error=message))
+                self._set_status(self._tr("status_transcription_error"), error=True)
+            self._log_event(self._tr("log_transcription_error", error=message), error=True)
             if not pending:
                 messagebox.showerror(self._tr("title_transcription_error"), message)
             self._start_next_transcription_from_queue()

@@ -26,6 +26,8 @@ class MixedPlayer:
         self.thread = None
         self.position = 0.0
         self.generation = 0
+        self.device_getter = lambda: None
+        self.end = 0.0
 
     def stop(self):
         self.stop_event.set()
@@ -36,6 +38,8 @@ class MixedPlayer:
 
     def play(self, position: float, end: float):
         self.stop()
+        self.end = end
+        device = self.device_getter()
         self.position = position
         self.stop_event.clear()
         generation = self.generation
@@ -55,7 +59,7 @@ class MixedPlayer:
                     source.seek(min(source.frames, round(position * rate)))
                 current = round(position * rate)
                 last = round(end * rate)
-                with sd.OutputStream(samplerate=rate, channels=1, dtype="float32", blocksize=2048) as stream:
+                with sd.OutputStream(device=device, samplerate=rate, channels=1, dtype="float32", blocksize=2048) as stream:
                     while not self.stop_event.is_set() and current < last:
                         count = min(2048, last - current)
                         mixed = np.zeros((count, 1), dtype=np.float32)
@@ -91,6 +95,7 @@ class TrimWindow(tk.Toplevel):
         self.started = session_start(session)
         self.events = queue.Queue()
         self.player = MixedPlayer(session, self.events)
+        self.player.device_getter = app._playback_device
         self.waveform_cancel = threading.Event()
         self.detail_cancel = threading.Event()
         self.waveform_threads = []
