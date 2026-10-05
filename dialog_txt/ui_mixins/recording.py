@@ -183,7 +183,8 @@ class RecordingMixin:
         elapsed = time.time() - self.recording_started_at
         session_name = self.active_session_dir.name if self.active_session_dir else self._tr("session_fallback")
         self._set_status(
-            self._tr("status_recording_active", session=session_name, duration=format_seconds(elapsed))
+            self._tr("status_recording_active", session=session_name, duration=format_seconds(elapsed)),
+            log=False,
         )
         self.after(250, self._tick_recording_timer)
 
@@ -207,10 +208,12 @@ class RecordingMixin:
     def _set_transcription_ui_state(self, is_running: bool) -> None:
         set_transcription_ui_state(self, is_running=is_running)
 
-    def _set_status(self, text: str, *, error: bool = False) -> None:
+    def _set_status(self, text: str, *, error: bool = False, log: bool = True) -> None:
         self.status_text = text
         self.status_is_error = error
         self._update_status_line()
+        if log:
+            self._log_event(text, error=error)
 
     def _update_status_line(self) -> None:
         update_status_line(self)
@@ -238,6 +241,10 @@ class RecordingMixin:
         self.desktop_level.configure(value=desktop_pct)
 
     def _log_event(self, text: str, *, error: bool = False) -> None:
+        # Some event handlers also report the same message as their status.
+        if getattr(self, "_last_log_event", None) == (text, error):
+            return
+        self._last_log_event = (text, error)
         timestamp = datetime.now().strftime("%H:%M:%S")
         line = f"[{timestamp}] {text}\n"
         self.log_text.configure(state=tk.NORMAL)
@@ -270,7 +277,7 @@ class RecordingMixin:
         try:
             text = self.log_text.get(tk.SEL_FIRST, tk.SEL_LAST)
         except tk.TclError:
-            text = self.log_text.get("1.0", "end-1c")
+            return "break"
         self.clipboard_clear()
         self.clipboard_append(text)
         return "break"

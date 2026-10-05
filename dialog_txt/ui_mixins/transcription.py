@@ -308,7 +308,7 @@ class TranscriptionMixin:
             pct_int = int(max(0, min(100, pct)))
             self.progress.configure(value=pct_int)
             self.progress_label.configure(text=f"{pct_int}%")
-            self._set_status(message)
+            self._set_status(message, log=False)
             progress_bucket = pct_int // 10
             if progress_bucket > self.last_progress_log_bucket:
                 self.last_progress_log_bucket = progress_bucket
@@ -333,8 +333,6 @@ class TranscriptionMixin:
             else:
                 self._set_status(self._tr("status_done", session=session_dir.name))
             self._log_event(self._tr("log_transcription_done", path=out_path))
-            if not pending:
-                self._open_path_in_file_manager(session_dir)
             self._start_next_transcription_from_queue()
             return
         if kind == "cancelled":

@@ -94,6 +94,14 @@ def build_ui(app) -> None:
     top = ttk.Frame(app, padding=6)
     top.pack(fill=tk.BOTH, expand=True)
 
+    app.status_label = ttk.Label(top, text="", anchor=tk.W, justify=tk.LEFT,
+                                 wraplength=580)
+    app.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(4, 0))
+    app.status_label.bind(
+        "<Configure>",
+        lambda event: app.status_label.configure(wraplength=max(1, event.width)),
+    )
+
     app.controls_box = ttk.LabelFrame(top, text=app._tr("group_recording"), padding=6)
     app.controls_box.pack(fill=tk.X)
     app.controls_box.columnconfigure(0, weight=1)
@@ -166,8 +174,6 @@ def build_ui(app) -> None:
     app.pending_short_name_entry = ttk.Entry(name_row, width=29,
                                            textvariable=app.pending_short_name_var)
     app.pending_short_name_entry.grid(row=0, column=1, sticky=tk.EW)
-    app.status_label = ttk.Label(app.controls_box, text="", wraplength=580)
-    app.status_label.grid(row=1, column=0, sticky=tk.W, pady=(2, 0))
     app._update_status_line()
 
     app.transcribe_box = ttk.LabelFrame(top, text=app._tr("group_transcription"), padding=6)
@@ -391,14 +397,12 @@ def build_ui(app) -> None:
 
     app.log_box = ttk.LabelFrame(top, text=app._tr("group_log"), padding=6)
     app.log_box.pack(fill=tk.BOTH, expand=False, pady=(6, 0))
-    app.copy_log_button = ttk.Button(app.log_box, text=app._tr("copy_log"),
-                                     command=app._copy_log_all)
-    app.copy_log_button.pack(anchor=tk.E, pady=(0, 3))
     app.log_context_menu = tk.Menu(app, tearoff=False)
     app.log_context_menu.add_command(label=app._tr("copy_log_selection"), command=app._copy_log_selection)
     app.log_context_menu.add_command(label=app._tr("copy_log"), command=app._copy_log_all)
     app.log_context_menu.add_command(label=app._tr("select_all"), command=app._select_log_all)
-    app.log_text = ScrolledText(app.log_box, height=6, wrap=tk.WORD, state=tk.DISABLED)
+    app.log_text = ScrolledText(app.log_box, height=6, wrap=tk.WORD, state=tk.DISABLED,
+                                takefocus=True, exportselection=False)
     app.log_text.pack(fill=tk.BOTH, expand=True)
     app.log_text.bind("<Control-c>", app._copy_log_selection)
     app.log_text.bind("<Control-C>", app._copy_log_selection)
@@ -476,7 +480,6 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.recordings_tree.heading("txt", text=app._tr("col_txt"))
     app.recordings_tree.heading("queue", text=app._tr("col_queue"))
     app.log_box.configure(text=app._tr("group_log"))
-    app.copy_log_button.configure(text=app._tr("copy_log"))
     app.log_context_menu.entryconfigure(0, label=app._tr("copy_log_selection"))
     app.log_context_menu.entryconfigure(1, label=app._tr("copy_log"))
     app.log_context_menu.entryconfigure(2, label=app._tr("select_all"))
@@ -548,11 +551,9 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
 
 
 def update_status_line(app) -> None:
-    app.status_label.configure(text=app.status_text,
-                               style="ErrorStatus.TLabel" if getattr(app, "status_is_error", False) else "TLabel")
-    if app.status_text in (app._tr("status_idle"), app._tr("status_microphones_found", count=len(app.microphones))):
-        app.status_label.grid_remove()
-    else:
-        app.status_label.grid()
+    app.status_label.configure(
+        text=app.status_text,
+        style="ErrorStatus.TLabel" if getattr(app, "status_is_error", False) else "TLabel",
+    )
     app.mic_label.configure(text=f"Mic ({len(app.microphones)}):")
     app.output_label.configure(text=f"Out ({len(app.speakers)}):")
