@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class RecordingError(RuntimeError):
@@ -15,6 +15,7 @@ class TranscriptSegment:
     end: float
     speaker: str
     text: str
+    words: list[tuple[float, float, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

@@ -31,6 +31,7 @@ RESULT_FILES = (
     MIC_TRANSCRIPT_FILE_NAME,
     DESKTOP_TRANSCRIPT_FILE_NAME,
     MIX_TRANSCRIPT_FILE_NAME,
+    "transcription_debug.json",
 )
 
 

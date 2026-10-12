@@ -29,6 +29,27 @@ and deleted after the response. Plain HTTP is intended for a trusted local netwo
 use a VPN or HTTPS reverse proxy if traffic crosses an untrusted network. Do not
 forward port 8765 from the router to the internet.
 
+The server writes diagnostics to `whisper_server.log` (override with
+`--log-file PATH`), including decoding-loop retries and job error tracebacks.
+Baseline recognition disables previous-text conditioning. Sustained exact phrase
+loops are retried once without a text prompt; remaining loops and silent segments
+are rejected. Ordinary brief repetitions are preserved.
+Track baselines use 30-second windows with overlap; the mix uses continuous
+60-second windows to preserve acoustic dialogue context. Retries use a larger
+beam and deterministic decoding and are limited to one attempt per window.
+
+When mix transcription is enabled and `mix.ogg` exists, its recognized words form
+the final transcript, including an empty result when no speech is recognized.
+Speaker attribution uses individual word timestamps, independent channel words
+and physical track activity. Unsupported mix segments are discarded, with timing
+tolerance for word alignment. Per-track transcript files retain
+their independent recognition instead of being overwritten by the mixed text.
+Deduplication requires temporal overlap and ordered word agreement; repeated
+utterances at different times and changed negations/numbers are preserved.
+`transcription_debug.json` stores options, runtime, per-track activity, timed
+channel/mix words and final segments, and is included in network results.
+These rules do not paraphrase speakers or invent missing semantic content.
+
 ### What it does
 
 - Records separate tracks:

@@ -3,6 +3,10 @@ from __future__ import annotations
 import contextlib
 import importlib
 import math
+import logging
+import json
+from dataclasses import asdict, replace
+from difflib import SequenceMatcher
 import os
 import re
 import sys
@@ -432,7 +436,12 @@ class WhisperTranscriber:
         if not isinstance(audio_input, str):
             return audio_input
 
-        audio_data, _sample_rate = sf.read(audio_input, dtype="float32", always_2d=False)
+        audio_data, sample_rate = sf.read(audio_input, dtype="float32", always_2d=False)
+        if sample_rate != 16000:
+            # Whisper treats arrays as 16 kHz. Passing the recorder's 48 kHz
+            # samples unchanged distorts duration, pitch and all timestamps.
+            decoder = importlib.import_module("faster_whisper.audio")
+            return decoder.decode_audio(audio_input, sampling_rate=16000)
         return to_mono(audio_data)
 
     def _resolve_session_language(
@@ -583,7 +592,14 @@ class WhisperTranscriber:
         time_offset: float = 0.0,
     ) -> list[tuple[TranscriptSegment, float | None, float | None]]:
         candidates: list[tuple[TranscriptSegment, float | None, float | None]] = []
-        for raw_seg in raw_segments:
+        loop_indexes = self._repetitive_segment_indexes(raw_segments)
+        for index, raw_seg in enumerate(raw_segments):
+            if index in loop_indexes:
+                logging.getLogger(__name__).warning(
+                    "Rejected decoding loop on %s at %s", speaker,
+                    self._segment_field(raw_seg, "start", 0.0),
+                )
+                continue
             seg = self._segment_with_time_offset(raw_seg, time_offset) if time_offset else raw_seg
             no_speech_prob = self._safe_float(self._segment_field(seg, "no_speech_prob"))
             avg_logprob = self._safe_float(self._segment_field(seg, "avg_logprob"))
@@ -629,7 +645,7 @@ class WhisperTranscriber:
     ) -> str:
         if not segments:
             return ""
-        text = " ".join(f"[{seg.speaker}] {seg.text}" for seg in segments if seg.text)
+        text = " ".join(seg.text for seg in segments if seg.text)
         text = normalize_text(text)
         if not text:
             return ""
@@ -664,7 +680,11 @@ class WhisperTranscriber:
         # Cross-speaker prompts make Whisper parrot the other audio track when
         # the current chunk is quiet or unclear. Context is useful, but only
         # from the same physical source/speaker.
-        recent_confirmed = [seg for seg in accepted_dialogue if seg.speaker == speaker][-8:]
+        recent_confirmed = [
+            seg for seg in accepted_dialogue
+            if seg.speaker == speaker
+            and utterance_start - BASELINE_CONTEXT_LOOKBACK_SEC <= seg.end <= utterance_start
+        ][-8:]
         if recent_confirmed:
             return self._prompt_from_segments(recent_confirmed, DIALOG_CONTEXT_PROMPT_WORDS)
 
@@ -688,36 +708,33 @@ class WhisperTranscriber:
         beam_size: int,
         language: str | None,
         strict_filter: bool,
+        cancel_event: threading.Event | None = None,
+        max_chunk_sec: float = 30.0,
     ) -> list[TranscriptSegment]:
-        masked_path = self._render_silence_masked_track(audio_path, speech_ranges)
-        if masked_path is None:
-            return []
-        try:
-            raw_segments = self._transcribe_audio(
-                model=model,
-                transcription_library=transcription_library,
-                runtime_device=runtime_device,
-                audio_input=str(masked_path),
-                beam_size=beam_size,
-                language=language,
-                condition_on_previous_text=True,
-                word_timestamps=True,
-                without_timestamps=False,
-            )
-        finally:
-            masked_path.unlink(missing_ok=True)
-
-        candidates = self._collect_candidates_from_raw_segments(
-            raw_segments=raw_segments,
-            speaker=speaker,
-            time_offset=0.0,
-        )
-        filtered = self._filter_track_candidates(
-            audio_path=audio_path,
-            candidates=candidates,
-            strict_filter=strict_filter,
-        )
-        return filtered
+        segments: list[TranscriptSegment] = []
+        for range_start, range_end in speech_ranges:
+            start = range_start
+            while start < range_end:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise TranscriptionCancelled()
+                end = min(range_end, start + max_chunk_sec)
+                segments.extend(self._transcribe_utterance_range(
+                    model=model,
+                    transcription_library=transcription_library,
+                    runtime_device=runtime_device,
+                    audio_path=audio_path,
+                    speaker=speaker,
+                    utterance_start=start,
+                    utterance_end=end,
+                    beam_size=beam_size,
+                    language=language,
+                    strict_filter=strict_filter,
+                    prompt="",
+                ))
+                if end >= range_end:
+                    break
+                start = end - min(2.0, max_chunk_sec / 4)
+        return segments
 
     def _transcribe_utterance_range(
         self,
@@ -806,6 +823,7 @@ class WhisperTranscriber:
                 audio_file=audio_file,
                 strict_filter=False,
             )
+            duration = audio_file.frames / audio_file.samplerate
         speech_ranges = self._coalesce_ranges_for_transcription(speech_ranges)
         if not speech_ranges:
             return []
@@ -816,10 +834,15 @@ class WhisperTranscriber:
             runtime_device=runtime_device,
             audio_path=mix_path,
             speaker="",
-            speech_ranges=speech_ranges,
+            # Preserve both sides and pauses as acoustic context in the mix.
+            # Physical speech support still gates the resulting document.
+            speech_ranges=[(max(0.0, speech_ranges[0][0] - 1.0),
+                            min(duration, speech_ranges[-1][1] + 1.0))],
             beam_size=beam_size,
             language=language,
             strict_filter=False,
+            cancel_event=cancel_event,
+            max_chunk_sec=60.0,
         )
 
     def transcribe_session(
@@ -869,6 +892,7 @@ class WhisperTranscriber:
                     audio_file=audio_file,
                     strict_filter=strict_filter,
                 )
+            track["activity_ranges"] = speech_ranges
             track["speech_ranges"] = self._coalesce_ranges_for_transcription(speech_ranges)
 
         baseline_segments: list[TranscriptSegment] = []
@@ -892,6 +916,7 @@ class WhisperTranscriber:
                     beam_size=options.beam_size,
                     language=session_language,
                     strict_filter=strict_filter,
+                    cancel_event=cancel_event,
                 )
                 track["baseline_segments"] = track_segments
                 baseline_segments.extend(track_segments)
@@ -955,15 +980,10 @@ class WhisperTranscriber:
                 strict_filter=strict_filter,
                 prompt=prompt,
             )
-            if not utterance_segments:
-                utterance_segments = self._segments_overlapping_range(
-                    segments=baseline_dialogue,
-                    speaker=str(utterance["speaker"]),
-                    start=float(utterance["start"]),
-                    end=float(utterance["end"]),
-                )
+            # Empty recognition is evidence of silence/uncertainty. Restoring
+            # the baseline here used to resurrect rejected hallucinations.
             if utterance_segments:
-                accepted_segments.extend(utterance_segments)
+                accepted_segments.extend(self._polish_segments(utterance_segments))
 
             # Persist incremental per-track results. Besides being safer on a
             # long run, the network server can return these files while the job
@@ -999,7 +1019,11 @@ class WhisperTranscriber:
         if cancel_event.is_set():
             raise TranscriptionCancelled()
 
-        resolved_segments = accepted_segments if accepted_segments else baseline_dialogue
+        resolved_segments = accepted_segments
+        for track in tracks:
+            track["recognized_segments"] = [
+                seg for seg in accepted_segments if seg.speaker == track["speaker"]
+            ]
         mix_segments: list[TranscriptSegment] = []
         if options.transcribe_mix_track:
             mix_segments = self._transcribe_mix_reference(
@@ -1013,7 +1037,7 @@ class WhisperTranscriber:
                 progress_cb=progress_cb,
                 ui_language=ui_language,
             )
-            if mix_segments:
+            if (session_dir / MIX_FILE_NAME).exists():
                 # The mixed signal normally gives Whisper the cleanest lexical
                 # result. Use the separate tracks for diarization instead of
                 # throwing the expensive mix pass away as a debug-only output.
@@ -1030,7 +1054,9 @@ class WhisperTranscriber:
         merged = self._finalize_segments(polished_segments)
         for track in tracks:
             speaker = str(track["speaker"])
-            track["resolved_segments"] = [seg for seg in merged if seg.speaker == speaker]
+            track["resolved_segments"] = self._finalize_segments(self._polish_segments(
+                [seg for seg in accepted_segments if seg.speaker == speaker]
+            ))
 
         out_path = transcript_path(session_dir)
         self._write_transcript_output(
@@ -1045,35 +1071,107 @@ class WhisperTranscriber:
             include_timestamps=options.include_timestamps,
             transcribe_mix_track=options.transcribe_mix_track,
         )
+        (session_dir / "transcription_debug.json").write_text(json.dumps({
+            "pipeline_version": 3,
+            "options": asdict(options),
+            "runtime": {"library": library, "device": runtime_device,
+                        "compute_type": _runtime_compute, "language": session_language},
+            "tracks": [{"key": track["key"], "speaker": track["speaker"],
+                        "activity_ranges": track["activity_ranges"],
+                        "segments": [asdict(seg) for seg in track["recognized_segments"]]}
+                       for track in tracks],
+            "mix_segments": [asdict(seg) for seg in mix_segments],
+            "final_segments": [asdict(seg) for seg in merged],
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
         progress_cb(tr(ui_language, "transcriber_status_done"), 100.0)
         return out_path
 
-    @staticmethod
     def _assign_mix_speakers(
+        self,
         mix_segments: list[TranscriptSegment],
         tracks: list[dict],
     ) -> list[TranscriptSegment]:
-        assigned: list[TranscriptSegment] = []
-        for segment in mix_segments:
-            best_speaker = str(tracks[0]["speaker"])
-            best_overlap = -1.0
+        with contextlib.ExitStack() as stack:
+            measured_tracks = []
             for track in tracks:
-                ranges = track.get("speech_ranges")
+                measured = dict(track)
+                if track.get("audio_path"):
+                    measured["audio_file"] = stack.enter_context(
+                        sf.SoundFile(str(track["audio_path"]), mode="r")
+                    )
+                measured_tracks.append(measured)
+            return self._assign_mix_speakers_with_evidence(mix_segments, measured_tracks)
+
+    def _assign_mix_speakers_with_evidence(
+        self,
+        mix_segments: list[TranscriptSegment],
+        tracks: list[dict],
+    ) -> list[TranscriptSegment]:
+        if not tracks:
+            return []
+        assigned: list[TranscriptSegment] = []
+        # Keep lexical content from the mix, but attribute individual timed
+        # words. A model sentence can contain both sides of a conversation.
+        units: list[TranscriptSegment] = []
+        for segment in mix_segments:
+            if segment.words:
+                # Whisper can attach valid function words to a zero-length
+                # timestamp. Give those words a small attribution interval.
+                units.extend(TranscriptSegment(max(0.0, start - .02) if end <= start else start,
+                                               end + .02 if end <= start else end, "", text)
+                             for start, end, text in segment.words)
+            else:
+                units.append(segment)
+        for segment in units:
+            energy = [self._segment_rms(track["audio_file"], segment.start, segment.end)
+                      if "audio_file" in track else 0.0 for track in tracks]
+            total_energy = sum(energy)
+            best_speaker = str(tracks[0]["speaker"])
+            best_score = -1.0
+            supported = False
+            for track_index, track in enumerate(tracks):
+                ranges = track.get("activity_ranges", track.get("speech_ranges"))
                 if not isinstance(ranges, list):
                     ranges = []
                 overlap = sum(
-                    max(0.0, min(segment.end, end) - max(segment.start, start))
+                    max(0.0, min(segment.end, end + .75) - max(segment.start, start - .75))
                     for start, end in ranges
                 )
-                if overlap > best_overlap:
-                    best_overlap = overlap
+                if overlap <= 0:
+                    continue
+                supported = True
+                recognized = track.get("recognized_segments", [])
+                local_text = normalize_text(" ".join(
+                    text for seg in recognized for start, end, text in seg.words
+                    if end >= segment.start - .75 and start <= segment.end + .75
+                )) or self._reference_text_for_range(recognized, segment.start, segment.end)
+                lexical = self._word_overlap_ratio(segment.text, local_text)
+                score = overlap / max(.01, segment.end - segment.start) + 2.0 * lexical
+                if total_energy:
+                    score += 1.5 * energy[track_index] / total_energy
+                if score > best_score:
+                    best_score = score
                     best_speaker = str(track["speaker"])
+            # Mixed audio supplies words, physical tracks supply speech support.
+            # Never attribute a phrase recognized during silence to a default speaker.
+            if not supported:
+                logging.getLogger(__name__).info(
+                    "Rejected unsupported mix segment %.2f-%.2f", segment.start, segment.end
+                )
+                continue
+            if (assigned and assigned[-1].speaker == best_speaker
+                    and -.04 <= segment.start - assigned[-1].end <= WORD_PAUSE_SPLIT_GAP
+                    and segment.end - assigned[-1].start <= TRANSCRIPT_CHUNK_HARD_MAX_SEC
+                    and self._word_count(assigned[-1].text) < TRANSCRIPT_CHUNK_HARD_MAX_WORDS):
+                assigned[-1].text = normalize_text(assigned[-1].text + " " + segment.text)
+                assigned[-1].end = segment.end
+                continue
             assigned.append(
                 TranscriptSegment(
                     start=segment.start,
                     end=segment.end,
                     speaker=best_speaker,
-                    text=segment.text,
+                    text=normalize_text(segment.text),
                 )
             )
         return assigned
@@ -1122,6 +1220,7 @@ class WhisperTranscriber:
         condition_on_previous_text: bool = False,
         word_timestamps: bool = True,
         without_timestamps: bool = False,
+        _retry_loop: bool = True,
     ) -> list:
         language_arg = language.strip() if isinstance(language, str) else None
         if language_arg == "":
@@ -1141,8 +1240,14 @@ class WhisperTranscriber:
                 transcribe_kwargs["language"] = language_arg
             if initial_prompt:
                 transcribe_kwargs["initial_prompt"] = initial_prompt
+            if not _retry_loop:
+                transcribe_kwargs["temperature"] = 0.0
             segments_iter, _info = model.transcribe(audio_input, **transcribe_kwargs)
-            return list(segments_iter)
+            segments = list(segments_iter)
+            return self._retry_repetitive_audio(
+                segments, model, transcription_library, runtime_device, audio_input,
+                beam_size, language, word_timestamps, without_timestamps, _retry_loop,
+            )
 
         if transcription_library == TRANSCRIPTION_LIBRARY_WHISPER:
             transcribe_kwargs = {
@@ -1157,15 +1262,58 @@ class WhisperTranscriber:
                 transcribe_kwargs["language"] = language_arg
             if initial_prompt:
                 transcribe_kwargs["initial_prompt"] = initial_prompt
+            if not _retry_loop:
+                transcribe_kwargs["temperature"] = 0.0
             if without_timestamps:
                 transcribe_kwargs["without_timestamps"] = True
             prepared_audio_input = self._prepare_openai_whisper_audio_input(audio_input)
             with self._redirect_missing_standard_streams():
                 result = model.transcribe(prepared_audio_input, **transcribe_kwargs)
             segments = result.get("segments") if isinstance(result, dict) else []
-            return segments if isinstance(segments, list) else []
+            return self._retry_repetitive_audio(
+                segments if isinstance(segments, list) else [], model,
+                transcription_library, runtime_device, audio_input, beam_size,
+                language, word_timestamps, without_timestamps, _retry_loop,
+            )
 
         raise RuntimeError(f"Unsupported transcription library: {transcription_library}")
+
+    def _retry_repetitive_audio(
+        self, segments, model, library, device, audio_input, beam_size,
+        language, word_timestamps, without_timestamps, retry,
+    ) -> list:
+        if retry and self._repetitive_segment_indexes(segments):
+            logging.getLogger(__name__).warning("Retrying repetitive decoding without text context")
+            return self._transcribe_audio(
+                model, library, device, audio_input, max(8, beam_size), language,
+                initial_prompt=None, condition_on_previous_text=False,
+                word_timestamps=word_timestamps, without_timestamps=without_timestamps,
+                _retry_loop=False,
+            )
+        return segments
+
+    def _repetitive_segment_indexes(self, segments: list) -> set[int]:
+        rejected = {index for index, seg in enumerate(segments)
+                    if self._has_repetition_loop(str(self._segment_field(seg, "text", "")))}
+        run: list[int] = []
+        previous_tokens: list[str] = []
+        previous_end = 0.0
+
+        def finish_run() -> None:
+            if len(run) >= 4 and len(run) * len(previous_tokens) >= 12:
+                rejected.update(run)
+
+        for index, seg in enumerate(segments):
+            tokens = self._overlap_words(str(self._segment_field(seg, "text", "")))[1]
+            start = self._safe_float(self._segment_field(seg, "start")) or 0.0
+            if tokens != previous_tokens or start - previous_end > 1.5:
+                finish_run()
+                run = []
+            run.append(index)
+            previous_tokens = tokens
+            previous_end = self._safe_float(self._segment_field(seg, "end")) or start
+        finish_run()
+        return rejected
 
     def _detect_speech_ranges(
         self,
@@ -1368,6 +1516,9 @@ class WhisperTranscriber:
         return merged
 
     def _merge_segments(self, segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
+        # Incremental rendering must not rewrite recognition evidence used by
+        # later prompts and word-level speaker attribution.
+        segments = [replace(segment, words=list(segment.words)) for segment in segments]
         ordered = sorted(segments, key=lambda s: (s.start, s.end))
         merged: list[TranscriptSegment] = []
 
@@ -1392,7 +1543,8 @@ class WhisperTranscriber:
         if value is None:
             return None
         try:
-            return float(value)
+            parsed = float(value)
+            return parsed if math.isfinite(parsed) else None
         except (TypeError, ValueError):
             return None
 
@@ -1429,12 +1581,13 @@ class WhisperTranscriber:
         seg_end = self._safe_float(self._segment_field(seg, "end")) or seg_start
         result: list[TranscriptSegment] = []
         current_tokens: list[str] = []
+        current_words: list[tuple[float, float, str]] = []
         current_token_count = 0
         current_start = seg_start
         current_end = seg_start
 
         def flush_chunk() -> None:
-            nonlocal current_tokens, current_token_count, current_start, current_end
+            nonlocal current_tokens, current_words, current_token_count, current_start, current_end
             if not current_tokens:
                 return
 
@@ -1458,9 +1611,11 @@ class WhisperTranscriber:
                     end=chunk_end,
                     speaker=speaker,
                     text=text,
+                    words=list(current_words),
                 )
             )
             current_tokens = []
+            current_words = []
             current_token_count = 0
 
         for word in words:
@@ -1492,6 +1647,8 @@ class WhisperTranscriber:
                     current_start = max(seg_start, current_start)
 
             current_tokens.append(token)
+            if word_start is not None and word_end is not None:
+                current_words.append((word_start, word_end, token))
             current_token_count += 1
             if word_end is not None:
                 current_end = word_end
@@ -1548,6 +1705,15 @@ class WhisperTranscriber:
         rms_floor: float,
         strict_filter: bool,
     ) -> bool:
+        # Absolute silence and failed decoding remain invalid even for long
+        # segments, and even when the optional stricter VAD mode is disabled.
+        if rms < MIN_AUDIO_RMS:
+            return True
+        if (no_speech_prob is not None and no_speech_prob >= NO_SPEECH_PROB_THRESHOLD
+                and avg_logprob is not None and avg_logprob <= -1.0):
+            return True
+        if self._has_repetition_loop(chunk.text):
+            return True
         if self._looks_like_silence_hallucination(chunk.text) and rms < (rms_floor * 1.4):
             return True
 
@@ -1584,6 +1750,20 @@ class WhisperTranscriber:
         if not normalized:
             return False
         return any(fragment in normalized for fragment in cls.SILENCE_HALLUCINATION_FRAGMENTS)
+
+    @classmethod
+    def _has_repetition_loop(cls, text: str) -> bool:
+        """Detect sustained exact loops, preserving normal double repetitions."""
+        tokens = re.findall(r"\w+", text.casefold())
+        for width in range(1, min(24, len(tokens) // 4) + 1):
+            for start in range(len(tokens) - width * 4 + 1):
+                phrase = tokens[start:start + width]
+                count = 1
+                while tokens[start + count * width:start + (count + 1) * width] == phrase:
+                    count += 1
+                if count >= 4 and count * width >= 12:
+                    return True
+        return False
 
     @classmethod
     def _strip_hallucination_phrases(cls, text: str) -> str:
@@ -1640,29 +1820,22 @@ class WhisperTranscriber:
         reference_segments: list[TranscriptSegment] | None = None,
     ) -> list[TranscriptSegment]:
         polished: list[TranscriptSegment] = []
-        reference_segments = reference_segments or []
 
         for seg in sorted(segments, key=lambda item: (item.start, item.end)):
             original_text = normalize_text(seg.text)
             if not original_text:
                 continue
 
-            reference_text = self._reference_text_for_range(reference_segments, seg.start, seg.end)
-            cleaned_text = self._strip_hallucination_phrases(original_text)
-            if not cleaned_text:
-                continue
-
-            if cleaned_text != original_text and self._word_count(cleaned_text) <= 2:
-                overlap = self._word_overlap_ratio(cleaned_text, reference_text)
-                if reference_text and overlap < 0.34:
-                    continue
-
+            # Phrase lists are acoustic warning signs, not editing rules:
+            # someone may actually say "thank you for watching".
+            cleaned_text = original_text
             polished.append(
                 TranscriptSegment(
                     start=seg.start,
                     end=seg.end,
                     speaker=seg.speaker,
                     text=cleaned_text,
+                    words=list(seg.words),
                 )
             )
         return polished
@@ -1684,7 +1857,7 @@ class WhisperTranscriber:
             for index in range(len(kept) - 1, -1, -1):
                 existing = kept[index]
                 if existing.end < candidate.start:
-                    break
+                    continue
                 if existing.speaker == candidate.speaker:
                     continue
                 overlap_duration = min(existing.end, candidate.end) - max(
@@ -1696,11 +1869,17 @@ class WhisperTranscriber:
                 )
                 if overlap_duration / shorter_duration < 0.50:
                     continue
-                text_overlap = min(
-                    self._word_overlap_ratio(existing.text, candidate.text),
-                    self._word_overlap_ratio(candidate.text, existing.text),
-                )
-                if text_overlap >= 0.72:
+                left_tokens = self._overlap_words(existing.text)[1]
+                right_tokens = self._overlap_words(candidate.text)[1]
+                text_overlap = SequenceMatcher(None, left_tokens, right_tokens, autojunk=False).ratio()
+                def factual_tokens(tokens):
+                    return [token for token in tokens if any(char.isdigit() for char in token)
+                            or token in {"not", "no", "never", "cannot", "не", "нет", "нельзя"}
+                            or token.endswith("n't")]
+                if left_tokens == right_tokens or (
+                    min(len(left_tokens), len(right_tokens)) >= 6 and text_overlap >= 0.92
+                    and factual_tokens(left_tokens) == factual_tokens(right_tokens)
+                ):
                     duplicate_index = index
                     break
 
@@ -1795,22 +1974,15 @@ class WhisperTranscriber:
             return normalize_text(right)
 
         max_overlap = min(len(left_norm), len(right_norm), 48)
-        for overlap_size in range(max_overlap, min_sequence_words - 1, -1):
+        for overlap_size in range(max_overlap, 1, -1):
             if left_norm[-overlap_size:] == right_norm[:overlap_size]:
-                merged_words = left_raw + right_raw[overlap_size:]
+                # Use the continuing window's punctuation on shared words,
+                # rather than retaining a premature sentence end at the cut.
+                merged_words = left_raw[:-overlap_size] + right_raw
                 return normalize_text(" ".join(merged_words))
 
-        smaller_norm, larger_text, larger_norm = (
-            (left_norm, right, right_norm)
-            if len(left_norm) <= len(right_norm)
-            else (right_norm, left, left_norm)
-        )
-        smaller_set = {token for token in smaller_norm if token}
-        if len(smaller_set) >= min_sequence_words:
-            overlap_count = sum(1 for token in smaller_set if token in set(larger_norm))
-            overlap_ratio = overlap_count / len(smaller_set)
-            if overlap_ratio >= 0.78 and len(larger_norm) >= (len(smaller_norm) + min_sequence_words):
-                return normalize_text(larger_text)
+        # A shared vocabulary is not duplication: reordered words or changed
+        # negation/numbers may represent a different claim.
         return None
 
     def _merge_same_speaker_segments(
@@ -1822,7 +1994,7 @@ class WhisperTranscriber:
             return None
 
         gap = right.start - left.end
-        if gap > MIN_SPEAKER_GAP:
+        if gap >= 0:
             return None
 
         merged_text = self._merge_textual_overlap(left.text, right.text)

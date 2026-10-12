@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import logging
 import tempfile
 import threading
 import uuid
@@ -31,6 +32,7 @@ def _run_job(job_id: str, body: bytes, options: TranscriptionOptions, ui_languag
     with _JOBS_LOCK:
         job = _JOBS[job_id]
     try:
+        logging.getLogger(__name__).info("Job %s started: %s", job_id, options)
         with tempfile.TemporaryDirectory(prefix="dialog-txt-whisper-") as temp_name:
             session_dir = Path(temp_name)
             with zipfile.ZipFile(io.BytesIO(body), "r") as archive:
@@ -50,6 +52,7 @@ def _run_job(job_id: str, body: bytes, options: TranscriptionOptions, ui_languag
                 with job["lock"]:
                     job.update(message=message, progress=float(pct), files=files)
                 print(f"{pct:5.1f}% {message}", flush=True)
+                logging.getLogger(__name__).info("Job %s %.1f%% %s", job_id, pct, message)
 
             with job["lock"]:
                 job["state"] = "running"
@@ -69,7 +72,9 @@ def _run_job(job_id: str, body: bytes, options: TranscriptionOptions, ui_languag
                         archive.write(path, name)
             with job["lock"]:
                 job.update(result=output.getvalue(), state="done", progress=100.0)
+            logging.getLogger(__name__).info("Job %s completed", job_id)
     except Exception as exc:
+        logging.getLogger(__name__).exception("Transcription job %s failed", job_id)
         with job["lock"]:
             job["state"] = "cancelled" if job["cancel_event"].is_set() else "error"
             job["error"] = str(exc)
@@ -172,7 +177,13 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--max-request-mb", type=int, default=4096)
+    parser.add_argument("--log-file", default="whisper_server.log")
     args = parser.parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        handlers=[logging.FileHandler(args.log_file, encoding="utf-8"), logging.StreamHandler()],
+    )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.max_request_bytes = args.max_request_mb * 1024 * 1024
     print(f"Dialog TXT Whisper server: http://{args.host}:{args.port}", flush=True)

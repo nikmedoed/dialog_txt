@@ -19,7 +19,7 @@ from .storage import read_session_metadata
 AUDIO_FILES = (MIC_FILE_NAME, DESKTOP_FILE_NAME, MIX_FILE_NAME)
 MANAGED_FILES = AUDIO_FILES + (METADATA_FILE_NAME, TRANSCRIPT_FILE_NAME,
                               MIC_TRANSCRIPT_FILE_NAME, DESKTOP_TRANSCRIPT_FILE_NAME,
-                              MIX_TRANSCRIPT_FILE_NAME)
+                              MIX_TRANSCRIPT_FILE_NAME, "transcription_debug.json")
 
 
 def parse_duration(value: str) -> float:
