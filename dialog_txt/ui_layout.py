@@ -376,6 +376,9 @@ def build_ui(app) -> None:
     app.recordings_tree.column("txt", width=32, minwidth=28, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.column("queue", width=48, minwidth=40, anchor=tk.CENTER, stretch=False)
     app.recordings_tree.pack(fill=tk.BOTH, expand=True)
+    app.recordings_tree.tag_configure("latest_batch", background="#dff2df", foreground="#173d17")
+    app.latest_batch_legend = ttk.Label(app.recordings_box, text=app._tr("latest_batch_legend"))
+    app.latest_batch_legend.pack(anchor=tk.W, pady=(3, 0))
     app._download_icon = tk.PhotoImage(master=app, width=12, height=12)
     # Draw a crisp download arrow and tray without relying on font glyph metrics.
     app._download_icon.put("#263238", to=(5, 1, 7, 7))
@@ -466,6 +469,7 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.progress_label_title.configure(text=app._tr("label_progress"))
     app.cancel_transcribe_button.configure(text=app._tr("cancel"))
     app.recordings_box.configure(text=app._tr("group_recordings"))
+    app.latest_batch_legend.configure(text=app._tr("latest_batch_legend"))
     app.transcribe_selected_button.configure(text=app._tr("btn_queue_selected"))
     app.queue_untranscribed_button.configure(text=app._tr("btn_queue_untranscribed"))
     app.refresh_recordings_button.configure(text=app._tr("btn_refresh_list"))

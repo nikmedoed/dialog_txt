@@ -206,6 +206,24 @@ def write_session_metadata(session_dir: Path, payload: dict) -> None:
     meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def mark_transcription_batch(session_dir: Path, batch_id: str) -> None:
+    payload = read_session_metadata(session_dir)
+    payload["transcription_batch"] = batch_id
+    write_session_metadata(session_dir, payload)
+
+
+def latest_transcription_batch_sessions(sessions: list[Path]) -> set[Path]:
+    batches = {
+        session: batch
+        for session in sessions
+        if transcript_path(session).is_file()
+        and isinstance(batch := read_session_metadata(session).get("transcription_batch"), str)
+        and batch
+    }
+    latest = max(batches.values(), default=None)
+    return {session for session, batch in batches.items() if batch == latest}
+
+
 def read_session_alias(session_dir: Path) -> str:
     payload = read_session_metadata(session_dir)
     return " ".join(str(payload.get("short_name", "")).split())

@@ -175,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dialog to TXT network Whisper server")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=8890)
     parser.add_argument("--max-request-mb", type=int, default=4096)
     parser.add_argument("--log-file", default="whisper_server.log")
     args = parser.parse_args()

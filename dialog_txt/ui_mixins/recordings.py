@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 from ..settings import save_app_settings
 from ..storage import (
     discover_sessions,
+    latest_transcription_batch_sessions,
     ensure_recordings_root,
     read_session_alias,
     read_session_metadata,
@@ -137,6 +138,7 @@ class RecordingsMixin:
             self.recordings_tree.delete(row)
 
         sessions = discover_sessions()
+        latest_batch = latest_transcription_batch_sessions(sessions)
         for session_dir in sessions:
             audio_status, txt_status = self._session_status(session_dir)
             queue_status = self._queue_badge_for_session(session_dir)
@@ -147,6 +149,7 @@ class RecordingsMixin:
                 "",
                 tk.END,
                 iid=str(session_dir),
+                tags=("latest_batch",) if session_dir in latest_batch else (),
                 values=(display_name, short_name, duration_text, audio_status, txt_status, queue_status, ""),
             )
         if sessions and not self.recordings_tree.selection():

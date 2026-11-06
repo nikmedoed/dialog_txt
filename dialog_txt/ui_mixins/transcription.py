@@ -3,13 +3,15 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from datetime import datetime, timezone
+from uuid import uuid4
 from pathlib import Path
 from typing import Literal
 
 from tkinter import messagebox
 
 from ..models import TranscriptionCancelled, TranscriptionOptions
-from ..storage import discover_sessions, resolve_track_paths, transcript_path
+from ..storage import discover_sessions, resolve_track_paths, transcript_path, mark_transcription_batch
 from ..transcription_backends import (
     is_transcription_library_installed,
     normalize_transcription_library,
@@ -59,6 +61,7 @@ class TranscriptionMixin:
             unique_sessions.append(session_dir)
 
         added = 0
+        new_batch = not self.transcription_queue and self.current_transcription_session is None
         skipped_missing = 0
         skipped_existing = 0
         for session_dir in unique_sessions:
@@ -79,6 +82,10 @@ class TranscriptionMixin:
             added += 1
 
         if added:
+            if new_batch:
+                self.transcription_batch_id = (
+                    datetime.now(timezone.utc).isoformat(timespec="microseconds") + "_" + uuid4().hex
+                )
             self._set_status(
                 self._tr(
                     "status_queue_added",
@@ -193,6 +200,7 @@ class TranscriptionMixin:
                 self.ui_language,
                 self.transcription_mode_var.get(),
                 self.network_whisper_url_var.get(),
+                self.transcription_batch_id,
             ),
             daemon=True,
         )
@@ -206,6 +214,7 @@ class TranscriptionMixin:
         ui_language: str,
         transcription_mode: str,
         network_url: str,
+        batch_id: str,
     ) -> None:
         try:
             progress_cb = lambda text, pct: self.event_queue.put(("progress", text, pct))
@@ -226,6 +235,7 @@ class TranscriptionMixin:
                     options=options,
                     ui_language=ui_language,
                 )
+            mark_transcription_batch(session_dir, batch_id)
             self.event_queue.put(("done", session_dir, out_path))
         except TranscriptionCancelled:
             self.event_queue.put(("cancelled", session_dir))

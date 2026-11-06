@@ -18,16 +18,16 @@ On the GPU computer, install/run the app as usual and start the server:
 python whisper_server.py
 ```
 
-Allow inbound TCP port `8765` in Windows Firewall only for the **Private** network
+Allow inbound TCP port `8890` in Windows Firewall only for the **Private** network
 profile. On the laptop set `Mode` to `network`, enter
-`http://HOME-PC-IP:8765`. Model, GPU, language, VAD and other
+`http://HOME-PC-IP:8890`. Model, GPU, language, VAD and other
 transcription options are taken from the laptop UI and executed by the server.
 
-Health check: `http://HOME-PC-IP:8765/health`. Requests are processed one at a time
+Health check: `http://HOME-PC-IP:8890/health`. Requests are processed one at a time
 to avoid GPU memory contention. Audio is held only in a temporary server directory
 and deleted after the response. Plain HTTP is intended for a trusted local network;
 use a VPN or HTTPS reverse proxy if traffic crosses an untrusted network. Do not
-forward port 8765 from the router to the internet.
+forward port 8890 from the router to the internet.
 
 The server writes diagnostics to `whisper_server.log` (override with
 `--log-file PATH`), including decoding-loop retries and job error tracebacks.
@@ -243,9 +243,9 @@ uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.
 python whisper_server.py
 ```
 
-В брандмауэре Windows разрешите входящий TCP-порт 8765 только для частного профиля.
+В брандмауэре Windows разрешите входящий TCP-порт 8890 только для частного профиля.
 На рабочем ноутбуке выберите режим `network`, укажите
-`http://IP-ДОМАШНЕГО-КОМПЬЮТЕРА:8765`. Аудио временно передаётся
+`http://IP-ДОМАШНЕГО-КОМПЬЮТЕРА:8890`. Аудио временно передаётся
 домашнему компьютеру, обрабатывается по одному заданию на GPU и удаляется там после
 ответа; итоговые TXT сохраняются рядом с записью на ноутбуке. Не пробрасывайте этот
 HTTP-порт в интернет; вне доверенной локальной сети используйте VPN или HTTPS-прокси.
