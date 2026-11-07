@@ -302,6 +302,8 @@ class RecordingMixin:
     def _on_close(self) -> None:
         if self.trim_window is not None and not self.trim_window.close(restart_monitor=False):
             return
+        if hasattr(self, "server_controls") and self.server_controls.defer_close(self._on_close):
+            return
         if self.system_events is not None:
             self.system_events.close()
         self._save_app_settings()

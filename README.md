@@ -8,10 +8,10 @@ Project codename/package: `dialog-txt`
 
 ## Network Whisper (home GPU)
 
-On the Windows GPU PC, click **Expose** next to the address and port in the main
-window, then **Start**. The panel shows the server status and URLs to copy to the
-laptop, and lets you stop the server, change its port, inspect recent logs, or
-enable Windows sign-in startup. Closing the app leaves a running server active.
+On the Windows GPU PC, click **Expose** in the main window to start the server.
+Its status and listening port appear in the status bar and event log. Click **Stop** to shut
+it down. Closing the app also stops a server started by that window. A server
+started separately keeps running.
 
 ### Windows background launcher
 
@@ -25,13 +25,11 @@ server.cmd restart
 server.cmd stop
 server.cmd logs
 server.cmd install
-server.cmd install -Autostart
 server.cmd uninstall
 ```
 
-`install` creates Desktop and Start Menu shortcuts; `-Autostart` additionally
-starts the server at this user's Windows sign-in. No administrator rights are
-needed. `uninstall` removes these shortcuts, retaining the configuration and
+`install` creates Desktop and Start Menu shortcuts without administrator rights.
+`uninstall` removes these shortcuts, retaining the configuration and
 running server. Stop/restart interrupts active transcription. This is a background
 process, not a Windows service: it does not restart after crashes or run before
 sign-in. Jobs are held in memory and do not survive a restart.
@@ -273,16 +271,15 @@ uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.
 
 ### Сетевой Whisper на домашней видеокарте
 
-На компьютере с GPU откройте **Расшарить → Запустить** в основном окне приложения.
-В той же панели можно скопировать адрес для ноутбука, остановить сервер,
-посмотреть логи, изменить порт или включить запуск при входе в Windows.
-Приложение можно закрыть: запущенный сервер продолжит работать.
+На компьютере с GPU нажмите **Расшарить** в основном окне приложения.
+Статус и порт сервера появятся под журналом и в самом журнале. Для выключения нажмите
+**Остановить**. При закрытии приложения сервер, запущенный из этого окна,
+остановится. Сервер, запущенный отдельно, продолжит работать.
 
 В Windows теперь достаточно дважды нажать **server.cmd**: сервер запустится
 в фоне, консоль держать открытой не нужно. Сначала один раз выполните `uv sync`.
-`server.cmd install` добавляет ярлыки на рабочий стол и в меню «Пуск»;
-`server.cmd install -Autostart` также включает запуск при входе текущего
-пользователя в Windows. Права администратора не нужны.
+`server.cmd install` добавляет ярлыки на рабочий стол и в меню «Пуск».
+Права администратора не нужны.
 
 Команды: `server.cmd status`, `server.cmd stop`, `server.cmd restart`,
 `server.cmd logs`. Настройки адреса, порта и лимита загрузки — в `server.json`

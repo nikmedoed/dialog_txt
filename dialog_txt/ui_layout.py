@@ -311,13 +311,9 @@ def build_ui(app) -> None:
     )
     app.choose_recordings_directory_button.grid(row=0, column=7, sticky=tk.W)
     if sys.platform == "win32":
-        from .server_ui import show_server_controls
+        from .server_ui import ServerControls
 
-        app.server_controls_button = ttk.Button(
-            network_row, text=app._tr("server_button"),
-            command=lambda: show_server_controls(app),
-        )
-        app.server_controls_button.grid(row=0, column=6, sticky=tk.W, padx=(0, 4))
+        app.server_controls = ServerControls(app, network_row)
 
     app.progress_label_title = ttk.Label(app.transcribe_box, text=app._tr("label_progress"))
     app.progress_label_title.grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
@@ -484,8 +480,8 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.transcription_mode_label.configure(text=app._tr("label_transcription_mode"))
     app.network_url_label.configure(text=app._tr("label_network_url"))
     app.network_port_label.configure(text=app._tr("server_port"))
-    if hasattr(app, "server_controls_button"):
-        app.server_controls_button.configure(text=app._tr("server_button"))
+    if hasattr(app, "server_controls"):
+        app.server_controls.render()
     app.progress_label_title.configure(text=app._tr("label_progress"))
     app.cancel_transcribe_button.configure(text=app._tr("cancel"))
     app.recordings_box.configure(text=app._tr("group_recordings"))

@@ -1,9 +1,8 @@
 param(
-    [ValidateSet('start', 'stop', 'restart', 'status', 'logs', 'install', 'uninstall', 'autostart-on', 'autostart-off', 'configure')]
+    [ValidateSet('start', 'stop', 'restart', 'status', 'logs', 'install', 'uninstall')]
     [string]$Action = 'start',
-    [switch]$Autostart,
     [switch]$ForApp,
-    [ValidateRange(1, 65535)][int]$Port
+    [string]$OwnerToken
 )
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -28,16 +27,17 @@ function Get-ServerProcess {
 }
 
 function Stop-Server {
+    if ($OwnerToken) {
+        if (!(Test-Path -LiteralPath $statePath)) { return }
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        if ($state.owner -ne $OwnerToken) { return }
+    }
     $process = Get-ServerProcess
     if ($process) {
         Stop-Process -Id $process.ProcessId -ErrorAction Stop
         Write-Host 'Server stopped. Active transcription, if any, was interrupted.'
     } else { Write-Host 'Server is not running under this launcher.' }
     if (Test-Path -LiteralPath $statePath) { Remove-Item -LiteralPath $statePath }
-}
-
-function Get-StartupShortcut {
-    Join-Path ([Environment]::GetFolderPath('Startup')) 'Dialog TXT Server.lnk'
 }
 
 function New-ServerShortcut($path) {
@@ -75,7 +75,7 @@ function Start-Server {
     try {
         $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($child.Id)"
         if (!$process) { throw 'Server exited during startup.' }
-        @{ pid = $child.Id; created = $process.CreationDate.ToUniversalTime().Ticks.ToString(); port = $port; host = [string]$config.host } |
+        @{ pid = $child.Id; created = $process.CreationDate.ToUniversalTime().Ticks.ToString(); port = $port; host = [string]$config.host; owner = $OwnerToken } |
             ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
         $probeHost = [string]$config.host
         if ($probeHost -eq '0.0.0.0') { $probeHost = '127.0.0.1' }
@@ -89,7 +89,6 @@ function Start-Server {
                     $child.Refresh()
                     if ($child.HasExited) { throw 'Server exited during startup.' }
                     Write-Host "Server ready on port $port. Logs: $log"
-                    Write-Host "Laptop URL: http://<this computer's LAN IP>:$port"
                     return
                 }
             } catch { }
@@ -106,9 +105,18 @@ function Start-Server {
 }
 
 try {
-    # Serialize launcher mutations, including startup-shortcut and manual launches.
+    # Wait briefly for concurrent status checks or launcher commands.
     New-Item -ItemType Directory -Path $runtime -Force | Out-Null
-    $guard = [IO.File]::Open((Join-Path $runtime 'launcher.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+    $lockPath = Join-Path $runtime 'launcher.lock'
+    for ($attempt = 0; ; $attempt++) {
+        try {
+            $guard = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+            break
+        } catch {
+            if ($_.Exception.InnerException -isnot [IO.IOException] -or $attempt -ge 25) { throw }
+            Start-Sleep -Milliseconds 200
+        }
+    }
     switch ($Action) {
         'start' { Start-Server }
         'stop' { Stop-Server }
@@ -128,8 +136,7 @@ try {
             if ($ForApp) {
                 @{
                     running = [bool]$process; ready = $health.status -eq 'ok'
-                    port = $state.port; host = $state.host; configured_port = (Get-ServerConfig).port
-                    autostart = Test-Path -LiteralPath (Get-StartupShortcut)
+                    port = $state.port
                 } | ConvertTo-Json -Compress
             } elseif ($process) {
                 Write-Host "PID $($process.ProcessId), port $($state.port), health: $($health.status)"
@@ -141,30 +148,17 @@ try {
         }
         'install' {
             $destinations = @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'))
-            if ($Autostart) { $destinations += [Environment]::GetFolderPath('Startup') }
             foreach ($folder in $destinations) {
                 New-ServerShortcut (Join-Path $folder 'Dialog TXT Server.lnk')
             }
             Write-Host 'Server shortcuts installed. Run server.cmd start to start now.'
-            if ($Autostart) { Write-Host 'Autostart enabled for this Windows user at sign-in.' }
-        }
-        'autostart-on' { New-ServerShortcut (Get-StartupShortcut) }
-        'autostart-off' {
-            $path = Get-StartupShortcut
-            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
-        }
-        'configure' {
-            if (!$Port) { throw 'Specify -Port.' }
-            $config = Get-ServerConfig
-            $config.port = $Port
-            $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
         }
         'uninstall' {
             foreach ($name in @('Programs', 'Desktop', 'Startup')) {
                 $path = Join-Path ([Environment]::GetFolderPath($name)) 'Dialog TXT Server.lnk'
                 if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
             }
-            Write-Host 'Shortcuts and autostart removed. Server and configuration retained.'
+            Write-Host 'Server shortcuts removed.'
         }
     }
 } catch { Write-Error $_; exit 1 }
