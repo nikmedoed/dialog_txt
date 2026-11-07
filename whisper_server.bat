@@ -10,7 +10,7 @@ echo.
 echo Starting server on all local network interfaces, port 8890...
 echo Stop it with Ctrl+C or by closing this window.
 echo.
-"%PY_EXE%" "%~dp0whisper_server.py"
+"%PY_EXE%" "%~dp0whisper_server.py" %*
 set "EC=%ERRORLEVEL%"
 
 echo.

@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import asdict
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from .config import (
+    DEFAULT_NETWORK_WHISPER_PORT,
     DESKTOP_FILE_NAME,
     DESKTOP_TRANSCRIPT_FILE_NAME,
     MIC_FILE_NAME,
@@ -26,6 +28,41 @@ from .storage import resolve_track_paths, transcript_path
 
 
 PROTOCOL_VERSION = "2"
+
+
+def split_server_address(url: str) -> tuple[str, str]:
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return url, ""
+    if port is None:
+        return url, ""
+    host, _, port_text = parts.netloc.rpartition(":")
+    address = parts._replace(netloc=host).geturl()
+    return address.removeprefix("http://"), port_text
+
+
+def join_server_address(address: str, port: str) -> str:
+    address, port = address.strip(), port.strip()
+    if not address:
+        return ""
+    implicit_http = "://" not in address
+    if implicit_http:
+        address = f"http://{address}"
+    try:
+        parts = urllib.parse.urlsplit(address)
+        embedded_port = parts.port
+    except ValueError:
+        return address
+    if not port:
+        if not implicit_http or embedded_port is not None:
+            return address
+        port = str(DEFAULT_NETWORK_WHISPER_PORT)
+    host = parts.netloc if embedded_port is None else parts.netloc.rpartition(":")[0]
+    return parts._replace(netloc=f"{host}:{port}").geturl()
+
+
 RESULT_FILES = (
     TRANSCRIPT_FILE_NAME,
     MIC_TRANSCRIPT_FILE_NAME,

@@ -199,7 +199,7 @@ class TranscriptionMixin:
                 options,
                 self.ui_language,
                 self.transcription_mode_var.get(),
-                self.network_whisper_url_var.get(),
+                self._network_whisper_url(),
                 self.transcription_batch_id,
             ),
             daemon=True,

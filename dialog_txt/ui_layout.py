@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
@@ -285,6 +286,7 @@ def build_ui(app) -> None:
 
     network_row = ttk.Frame(app.transcribe_box)
     network_row.grid(row=3, column=0, columnspan=4, sticky=tk.EW, pady=(4, 0))
+    network_row.columnconfigure(3, weight=1)
     app.transcription_mode_label = ttk.Label(network_row, text=app._tr("label_transcription_mode"))
     app.transcription_mode_label.grid(row=0, column=0, sticky=tk.W)
     app.transcription_mode_combo = ttk.Combobox(network_row, state="readonly", width=8, values=["local", "network"], textvariable=app.transcription_mode_var)
@@ -292,15 +294,30 @@ def build_ui(app) -> None:
     app.network_url_label = ttk.Label(network_row, text=app._tr("label_network_url"))
     app.network_url_label.grid(row=0, column=2, sticky=tk.W)
     app.network_url_entry = ttk.Entry(
-        network_row, width=28, textvariable=app.network_whisper_url_var
+        network_row, width=12, textvariable=app.network_whisper_address_var
     )
-    app.network_url_entry.grid(row=0, column=3, sticky=tk.W, padx=(3, 8))
+    app.network_url_entry.grid(row=0, column=3, sticky=tk.EW, padx=(3, 8))
+    app.network_url_entry.bind("<<Paste>>", app._paste_network_whisper_url)
+    app.network_port_label = ttk.Label(network_row, text=app._tr("server_port"))
+    app.network_port_label.grid(row=0, column=4, sticky=tk.W)
+    app.network_port_entry = ttk.Entry(
+        network_row, width=6, textvariable=app.network_whisper_port_var
+    )
+    app.network_port_entry.grid(row=0, column=5, padx=(3, 8))
     app.choose_recordings_directory_button = ttk.Button(
         network_row,
         text=app._tr("btn_recordings_directory"),
         command=app._choose_recordings_directory,
     )
-    app.choose_recordings_directory_button.grid(row=0, column=4, sticky=tk.W)
+    app.choose_recordings_directory_button.grid(row=0, column=7, sticky=tk.W)
+    if sys.platform == "win32":
+        from .server_ui import show_server_controls
+
+        app.server_controls_button = ttk.Button(
+            network_row, text=app._tr("server_button"),
+            command=lambda: show_server_controls(app),
+        )
+        app.server_controls_button.grid(row=0, column=6, sticky=tk.W, padx=(0, 4))
 
     app.progress_label_title = ttk.Label(app.transcribe_box, text=app._tr("label_progress"))
     app.progress_label_title.grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
@@ -466,6 +483,9 @@ def apply_localization(app, refresh_data: bool = False) -> None:
     app.vad_filter_check.configure(text=app._tr("vad_filter"))
     app.transcription_mode_label.configure(text=app._tr("label_transcription_mode"))
     app.network_url_label.configure(text=app._tr("label_network_url"))
+    app.network_port_label.configure(text=app._tr("server_port"))
+    if hasattr(app, "server_controls_button"):
+        app.server_controls_button.configure(text=app._tr("server_button"))
     app.progress_label_title.configure(text=app._tr("label_progress"))
     app.cancel_transcribe_button.configure(text=app._tr("cancel"))
     app.recordings_box.configure(text=app._tr("group_recordings"))
@@ -539,6 +559,7 @@ def set_transcription_ui_state(app, is_running: bool) -> None:
     app.transcribe_mix_track_check.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.transcription_mode_combo.configure(state=tk.DISABLED if is_running else "readonly")
     app.network_url_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+    app.network_port_entry.configure(state=tk.DISABLED if is_running else tk.NORMAL)
     app.cancel_transcribe_button.configure(state=tk.NORMAL if is_running else tk.DISABLED)
     selected_sessions = app._selected_sessions()
     app.refresh_recordings_button.configure(state=tk.NORMAL)

@@ -185,3 +185,5 @@ uv.lock
 /media
 /recordings
 app_settings.json
+server.json
+/.server/

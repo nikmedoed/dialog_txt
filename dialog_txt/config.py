@@ -21,6 +21,7 @@ def _resolve_app_data_root() -> Path:
 APP_DATA_ROOT = _resolve_app_data_root()
 RECORDINGS_ROOT = APP_DATA_ROOT / "recordings"
 APP_SETTINGS_FILE = APP_DATA_ROOT / "app_settings.json"
+DEFAULT_NETWORK_WHISPER_PORT = 8890
 
 MIC_FILE_NAME = "mic.ogg"
 DESKTOP_FILE_NAME = "desktop.ogg"

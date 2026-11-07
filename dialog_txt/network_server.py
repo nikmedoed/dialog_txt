@@ -4,6 +4,7 @@ import argparse
 import io
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import tempfile
 import threading
 import uuid
@@ -12,7 +13,7 @@ from dataclasses import fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .config import DESKTOP_FILE_NAME, MIC_FILE_NAME, MIX_FILE_NAME
+from .config import DEFAULT_NETWORK_WHISPER_PORT, DESKTOP_FILE_NAME, MIC_FILE_NAME, MIX_FILE_NAME
 from .models import TranscriptionOptions
 from .network_whisper import PROTOCOL_VERSION, RESULT_FILES
 from .transcription import WhisperTranscriber
@@ -51,7 +52,6 @@ def _run_job(job_id: str, body: bytes, options: TranscriptionOptions, ui_languag
                         files[name] = path.read_text(encoding="utf-8", errors="replace")
                 with job["lock"]:
                     job.update(message=message, progress=float(pct), files=files)
-                print(f"{pct:5.1f}% {message}", flush=True)
                 logging.getLogger(__name__).info("Job %s %.1f%% %s", job_id, pct, message)
 
             with job["lock"]:
@@ -169,24 +169,30 @@ class Handler(BaseHTTPRequestHandler):
         self._json(202, {"job_id": job_id})
 
     def log_message(self, format, *args):
-        print(f"{self.client_address[0]} - {format % args}", flush=True)
+        logging.getLogger(__name__).info("%s - %s", self.client_address[0], format % args)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dialog to TXT network Whisper server")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8890)
+    parser.add_argument("--port", type=int, default=DEFAULT_NETWORK_WHISPER_PORT)
     parser.add_argument("--max-request-mb", type=int, default=4096)
     parser.add_argument("--log-file", default="whisper_server.log")
+    parser.add_argument("--no-console-log", action="store_true")
     args = parser.parse_args()
+    if not 1 <= args.port <= 65535 or args.max_request_mb < 1:
+        parser.error("port must be 1..65535 and max-request-mb must be positive")
+    Path(args.log_file).parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        handlers=[logging.FileHandler(args.log_file, encoding="utf-8"), logging.StreamHandler()],
+        handlers=[RotatingFileHandler(args.log_file, maxBytes=10 * 1024 * 1024,
+                                     backupCount=3, encoding="utf-8")]
+                 + ([] if args.no_console_log else [logging.StreamHandler()]),
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.max_request_bytes = args.max_request_mb * 1024 * 1024
-    print(f"Dialog TXT Whisper server: http://{args.host}:{args.port}", flush=True)
+    logging.getLogger(__name__).info("Dialog TXT Whisper server: http://%s:%s", args.host, args.port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

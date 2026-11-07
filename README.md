@@ -8,6 +8,42 @@ Project codename/package: `dialog-txt`
 
 ## Network Whisper (home GPU)
 
+On the Windows GPU PC, click **Expose** next to the address and port in the main
+window, then **Start**. The panel shows the server status and URLs to copy to the
+laptop, and lets you stop the server, change its port, inspect recent logs, or
+enable Windows sign-in startup. Closing the app leaves a running server active.
+
+### Windows background launcher
+
+Run `server.cmd` (double-click or from any working directory) to start in the
+background using the project's `.venv`. Run `uv sync` once first.
+
+```bat
+server.cmd start
+server.cmd status
+server.cmd restart
+server.cmd stop
+server.cmd logs
+server.cmd install
+server.cmd install -Autostart
+server.cmd uninstall
+```
+
+`install` creates Desktop and Start Menu shortcuts; `-Autostart` additionally
+starts the server at this user's Windows sign-in. No administrator rights are
+needed. `uninstall` removes these shortcuts, retaining the configuration and
+running server. Stop/restart interrupts active transcription. This is a background
+process, not a Windows service: it does not restart after crashes or run before
+sign-in. Jobs are held in memory and do not survive a restart.
+
+First start copies `server.example.json` to `server.json`. Edit host, port or
+upload limit there, then restart. Logs and process state live in `.server/`;
+`server.log` rotates at 10 MiB with three backups. `stdout.log` and `stderr.log`
+capture startup/library diagnostics and are replaced on each start. `logs` follows
+the main log until Ctrl+C. Keep the project folder in place after installing
+shortcuts. An already running manually launched server must be stopped in its
+original console before using this launcher.
+
 The optional network mode keeps recording and the resulting text on the laptop while
 running Whisper on another computer in the same LAN. Existing local transcription is
 still the default.
@@ -20,7 +56,8 @@ python whisper_server.py
 
 Allow inbound TCP port `8890` in Windows Firewall only for the **Private** network
 profile. On the laptop set `Mode` to `network`, enter
-`http://HOME-PC-IP:8890`. Model, GPU, language, VAD and other
+the server's computer name or IP address. For a plain address, the app defaults
+to HTTP on port 8890. Model, GPU, language, VAD and other
 transcription options are taken from the laptop UI and executed by the server.
 
 Health check: `http://HOME-PC-IP:8890/health`. Requests are processed one at a time
@@ -236,6 +273,25 @@ uv pip install --python .\.venv\Scripts\python.exe --index-url https://download.
 
 ### Сетевой Whisper на домашней видеокарте
 
+На компьютере с GPU откройте **Расшарить → Запустить** в основном окне приложения.
+В той же панели можно скопировать адрес для ноутбука, остановить сервер,
+посмотреть логи, изменить порт или включить запуск при входе в Windows.
+Приложение можно закрыть: запущенный сервер продолжит работать.
+
+В Windows теперь достаточно дважды нажать **server.cmd**: сервер запустится
+в фоне, консоль держать открытой не нужно. Сначала один раз выполните `uv sync`.
+`server.cmd install` добавляет ярлыки на рабочий стол и в меню «Пуск»;
+`server.cmd install -Autostart` также включает запуск при входе текущего
+пользователя в Windows. Права администратора не нужны.
+
+Команды: `server.cmd status`, `server.cmd stop`, `server.cmd restart`,
+`server.cmd logs`. Настройки адреса, порта и лимита загрузки — в `server.json`
+(создаётся при первом запуске), журналы — в `.server/`. После изменения настроек
+нужен restart. Остановка прерывает текущую расшифровку. Это фоновый процесс:
+автоматического восстановления после падения и запуска до входа в Windows нет.
+`server.cmd uninstall` убирает ярлыки и автозапуск, сохраняя настройки;
+для остановки сервера отдельно выполните `server.cmd stop`.
+
 Локальная транскрибация остаётся режимом по умолчанию. Для обработки на другом
 компьютере домашней сети запустите в корне проекта:
 
@@ -245,7 +301,8 @@ python whisper_server.py
 
 В брандмауэре Windows разрешите входящий TCP-порт 8890 только для частного профиля.
 На рабочем ноутбуке выберите режим `network`, укажите
-`http://IP-ДОМАШНЕГО-КОМПЬЮТЕРА:8890`. Аудио временно передаётся
+имя или IP домашнего компьютера. По умолчанию используется HTTP и порт 8890.
+Аудио временно передаётся
 домашнему компьютеру, обрабатывается по одному заданию на GPU и удаляется там после
 ответа; итоговые TXT сохраняются рядом с записью на ноутбуке. Не пробрасывайте этот
 HTTP-порт в интернет; вне доверенной локальной сети используйте VPN или HTTPS-прокси.

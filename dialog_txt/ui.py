@@ -8,6 +8,7 @@ from pathlib import Path
 import tkinter as tk
 
 from .localization import UI_LANGUAGE_CODES
+from .network_whisper import join_server_address, split_server_address
 from .numpy_compat import apply_numpy_fromstring_compat_patch
 from .recording import DualTrackLevelMonitor, DualTrackRecorder
 from .settings import load_app_settings
@@ -115,7 +116,9 @@ class App(
             value=self.app_settings["transcribe_mix_track"]
         )
         self.transcription_mode_var = tk.StringVar(value=self.app_settings["transcription_mode"])
-        self.network_whisper_url_var = tk.StringVar(value=self.app_settings["network_whisper_url"])
+        address, port = split_server_address(self.app_settings["network_whisper_url"])
+        self.network_whisper_address_var = tk.StringVar(value=address)
+        self.network_whisper_port_var = tk.StringVar(value=port)
         self._build_ui()
         from . import __version__
         self._log_event(self._tr("log_app_version", version=__version__))
@@ -134,7 +137,8 @@ class App(
         self.include_timestamps_var.trace_add("write", self._schedule_settings_save)
         self.transcribe_mix_track_var.trace_add("write", self._schedule_settings_save)
         self.transcription_mode_var.trace_add("write", self._schedule_settings_save)
-        self.network_whisper_url_var.trace_add("write", self._schedule_settings_save)
+        self.network_whisper_address_var.trace_add("write", self._schedule_settings_save)
+        self.network_whisper_port_var.trace_add("write", self._schedule_settings_save)
         self._migrate_legacy_session_aliases()
         self._refresh_microphones()
         self._refresh_recordings()
@@ -147,6 +151,25 @@ class App(
             self.system_events = WindowsSessionEvents(self, self._signal_system_stop)
         except OSError as exc:
             self._log_event(self._tr("system_events_error", error=exc), error=True)
+
+    def _network_whisper_url(self) -> str:
+        return join_server_address(
+            self.network_whisper_address_var.get(), self.network_whisper_port_var.get()
+        )
+
+    def _paste_network_whisper_url(self, event) -> str | None:
+        if event.widget.instate(("disabled",)):
+            return None
+        try:
+            value = self.clipboard_get().strip()
+        except tk.TclError:
+            return None
+        if not value.startswith(("http://", "https://")):
+            return None
+        address, port = split_server_address(value)
+        self.network_whisper_address_var.set(address)
+        self.network_whisper_port_var.set(port)
+        return "break"
 
     def _signal_system_stop(self, reason: str) -> None:
         recorder = self.recorder
